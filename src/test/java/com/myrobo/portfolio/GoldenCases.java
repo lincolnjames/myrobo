@@ -1,5 +1,6 @@
 package com.myrobo.portfolio;
 
+import com.myrobo.common.json.Json;
 import com.myrobo.portfolio.PlanTypes.Mode;
 import com.myrobo.portfolio.PlanTypes.OrderLine;
 import com.myrobo.portfolio.PlanTypes.PlannerConfig;
@@ -32,7 +33,7 @@ final class GoldenCases {
     static GoldenCases load(InputStream in) throws IOException {
         Objects.requireNonNull(in, "golden_cases.json not found on classpath");
         String json = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        return new GoldenCases((Map<String, Object>) MiniJson.parse(json));
+        return new GoldenCases((Map<String, Object>) Json.parse(json));
     }
 
     List<Map<String, Object>> cases() {

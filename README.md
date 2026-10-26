@@ -14,11 +14,21 @@
 | 규칙 설정 파일 | `config/robo-config.yml` | 시작 시 로딩·검증 |
 | 설정 로딩·검증·지문 | `src/main/java/com/myrobo/common/config` | 위험한 설정 실수 시 시작 거부 |
 | 설정 승인 검사 | `ConfigApprovalGuard` | 승인 안 된 설정 파일이면 시작 거부 |
-| DB 스키마 1단계 | `src/main/resources/db/migration/V1__phase1_schema.sql` | Flyway가 시작 시 적용 |
+| 데이터 수집 | `src/main/java/com/myrobo/collector` | 매일 08:00 일봉·휴장일·환율 수집 |
+| 배치 기록·수동 실행 | `src/main/java/com/myrobo/ops` | job_run 기록, `POST /internal/jobs/collect` |
+| DB 스키마 | `src/main/resources/db/migration` | V1 1단계 테이블, V2 휴장일 |
 | 기준 구현·케이스 생성 | `tools/rebalance_ref.py`, `tools/gen_cases.py` | 정답 계산기 |
-| 데이터 소스 확인 | `tools/check_data_sources.py` | Tiingo·Finnhub·SEC 확인 |
+| 데이터 소스 확인 | `tools/check_data_sources.py` | Tiingo·Finnhub·SEC·환율 API 확인 |
 
-나머지 패키지(`collector`, `guard`, `plan`, `web`, `ops`, `signal`, `backtest`)는 각자의 `package-info.java`에 맡을 일만 적혀 있고, 다음 작업에서 채운다.
+나머지 패키지(`guard`, `plan`, `web`, `signal`, `backtest`)는 각자의 `package-info.java`에 맡을 일만 적혀 있고, 다음 작업에서 채운다.
+
+### 데이터 수집 규칙
+
+- **일봉 (Tiingo)**: 처음엔 2000년부터 전체 이력, 그 뒤엔 새 날짜만. 단, 새로 받은 날에 **분할·배당이 있으면 그 종목 전체 이력을 다시 받는다.** 분할·배당이 생기면 과거 모든 날의 수정주가가 다시 계산되기 때문에, 새 날만 받으면 옛 값과 새 값이 섞여 이동평균이 틀어진다.
+- **호출 한도**: Tiingo 무료 한도(시간당 50·하루 1,000)보다 낮게 45·900으로 제한. 시간당 한도면 기다리고, 하루 한도면 남은 종목은 다음 실행으로 넘긴다.
+- **거래일**: 미국 뉴욕 시간 기준. Finnhub 휴장일 중 종일 휴장만 휴장으로, 조기 폐장은 거래일로 본다. 일봉은 17:45(ET) 이후에 나온 것으로 보며, 그래서 수집은 겨울에도 그 이후인 08:00(KST)에 돈다.
+- **환율**: 수출입은행 매매기준율을 최근 영업일부터 거슬러 찾고, 키가 없거나 실패하면 Frankfurter.
+- **실패 격리**: 한 종목이 실패해도 나머지는 계속하고, 실패와 경고는 로그와 `job_run`에 남는다.
 
 ## 처음 실행하기
 
@@ -30,10 +40,12 @@ JDK 17 이상이 필요하다.
 ./gradlew test          # Windows: gradlew.bat test
 ```
 
-처음에는 Gradle과 의존성을 내려받느라 몇 분 걸린다. 테스트는 두 묶음이다.
+처음에는 Gradle과 의존성을 내려받느라 몇 분 걸린다. 네트워크·DB 없이 도는 테스트 40개다.
 
 - `RebalancePlannerGoldenTest`: 골든 케이스 15개. 주문 줄, 환전, 실행 후 비중, 현금까지 정답과 완전히 같아야 통과
 - `RoboConfigFilesTest`: 실제 설정 파일이 통과하는지, 그리고 비중 합계 오류·주식 상한 초과·거래 불가 종목이 시작을 막는지
+- `CollectorParsingTest`: Tiingo·Finnhub·수출입은행·Frankfurter 응답 해석, API 키가 URL에 남지 않는지
+- `CollectorFlowTest`: 서머타임·휴장일 거래일 계산, 증분·전체 재수집, 호출 한도, 환율 예비 경로, 한 종목 실패 격리
 
 ### 2. Supabase 준비
 
@@ -43,15 +55,25 @@ JDK 17 이상이 필요하다.
 
 ### 3. 앱 실행
 
-`.env.example`의 DB 항목 세 개를 환경변수로 넣고 실행한다.
+`.env.example`의 DB 항목 세 개와 데이터 키를 환경변수로 넣고 실행한다. `KOREAEXIM_KEY`는 없어도 된다 (Frankfurter로 대신함).
 
 ```powershell
 # Windows PowerShell
 $env:DB_URL="jdbc:postgresql://<pooler-host>:5432/postgres?sslmode=require"
 $env:DB_USER="postgres.<project-ref>"
 $env:DB_PASSWORD="..."
+$env:TIINGO_KEY="..."
+$env:FINNHUB_KEY="..."
 .\gradlew.bat bootRun
 ```
+
+수집은 매일 08:00(KST)에 자동으로 돈다. 바로 돌려 보려면 앱이 켜진 상태에서 다른 PowerShell 창에서:
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:8080/internal/jobs/collect | ConvertTo-Json -Depth 5
+```
+
+처음 실행은 종목마다 2000년 이후 전체 이력을 받아서 1분 정도 걸린다. 결과는 Supabase `robo` 스키마의 `price_daily`, `fx_rate`, `market_holiday`, `job_run`에서 볼 수 있다.
 
 처음 시작하면 로그에 `현재 설정(version 2026.10.1, ...)을 최초 승인으로 기록함`이 나온다.
 그 뒤로 `config/robo-config.yml`을 고치고 다시 시작하면 **승인되지 않은 설정이라 시작이 거부되는 게 정상**이다.
@@ -83,8 +105,7 @@ $env:DB_PASSWORD="..."
 
 ## 다음 작업 (1단계 나머지)
 
-1. `collector`: Tiingo 일봉·분할·배당, 수출입은행·Frankfurter 환율, Finnhub 휴장일 수집 (속도 제한 포함)
-2. `web`: 잔고·현금·체결 입력 화면
-3. `guard`: 데이터 신선도, 미완료 주문안, 주문안 크기 상한, 주식 비중 상한 검증
-4. `plan`: 주문안 저장·상태 전이, 텔레그램 알림
-5. `ops`: 07:00 배치 스케줄, 완료 신호, 주간 백업
+1. `web`: 잔고·현금·체결 입력 화면 (수집 대상에 보유 종목 추가)
+2. `guard`: 데이터 신선도, 미완료 주문안, 주문안 크기 상한, 주식 비중 상한 검증
+3. `plan`: 주문안 저장·상태 전이, 텔레그램 알림
+4. `ops`: 수집 뒤 주문안 배치 연결, 완료 신호(외부 감시), 주간 백업

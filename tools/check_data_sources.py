@@ -78,6 +78,20 @@ else:
 checks.append(("SEC EDGAR 공시 목록 (키 불필요)",
                "https://data.sec.gov/submissions/CIK0000320193.json"))
 
+checks.append(("Frankfurter 환율 v2 (키 불필요)", "https://api.frankfurter.dev/v2/rate/USD/KRW"))
+
+ek = os.environ.get("KOREAEXIM_KEY")
+if ek:
+    # 직전 평일 기준 (오늘은 11시 전이면 고시 전이라 빈 배열)
+    d = today - timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    checks.append((f"수출입은행 환율 {d}",
+                   "https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON"
+                   f"?authkey={ek}&searchdate={d.strftime('%Y%m%d')}&data=AP01"))
+else:
+    print("KOREAEXIM_KEY 환경변수가 없어 수출입은행 확인은 건너뜀")
+
 print(f"\n확인 일시 {today}, 기준 종목 {SYMBOL}\n")
 for name, url in checks:
     status, body = get(url)

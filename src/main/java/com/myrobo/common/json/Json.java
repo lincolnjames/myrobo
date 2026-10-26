@@ -1,4 +1,4 @@
-package com.myrobo.portfolio;
+package com.myrobo.common.json;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -7,20 +7,20 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 골든 케이스 전용 최소 JSON 파서. 숫자는 모두 BigDecimal로 읽는다.
- * 엔진 테스트가 프레임워크·라이브러리 버전과 무관하게 돌도록 의존성 없이 둔다.
+ * 최소 JSON 파서. 숫자는 모두 BigDecimal로 읽는다 (가격·환율을 double로 읽어 오차가 생기지 않게).
+ * 외부 API 응답과 골든 케이스만 읽으므로 의존성 없이 둔다. 결과는 Map, List, String, BigDecimal, Boolean, null.
  */
-final class MiniJson {
+public final class Json {
 
     private final String s;
     private int i;
 
-    private MiniJson(String s) {
+    private Json(String s) {
         this.s = s;
     }
 
-    static Object parse(String json) {
-        MiniJson p = new MiniJson(json);
+    public static Object parse(String json) {
+        Json p = new Json(json);
         p.ws();
         Object v = p.value();
         p.ws();

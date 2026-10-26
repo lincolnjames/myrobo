@@ -18,6 +18,24 @@ robo:
   config-path: ${ROBO_CONFIG_PATH:config/robo-config.yml}
   config:
     require-approval: true        # 승인 안 된 설정 파일이면 시작 거부
+  collector:
+    enabled: true
+    cron: "0 0 8 * * *"           # 매일 08:00 KST. 겨울에도 미국 일봉 반영(17:45 ET) 이후
+    backfill-start: 2000-01-01    # 처음 받을 때 이 날짜부터 (상장 전이면 상장일부터 옴)
+    tiingo:
+      base-url: https://api.tiingo.com
+      key: ${TIINGO_KEY:}
+      per-hour: 45                # 무료 한도 시간당 50회보다 여유 있게
+      per-day: 900                # 무료 한도 하루 1,000회보다 여유 있게
+    finnhub:
+      base-url: https://finnhub.io/api/v1
+      key: ${FINNHUB_KEY:}
+    koreaexim:
+      base-url: https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON
+      key: ${KOREAEXIM_KEY:}      # 없으면 Frankfurter로 대신함
+    frankfurter:
+      base-url: https://api.frankfurter.dev
+      key: ""
 
 server:
   port: 8080
