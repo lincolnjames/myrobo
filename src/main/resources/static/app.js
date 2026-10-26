@@ -270,7 +270,10 @@
       const res = await fetch('/api/plans', { method: 'POST', headers: { 'X-Robo-Request': '1' } });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const r = await res.json();
-      $('planMessage').replaceChildren(el('div', { class: 'notice ' + (OUTCOME_KIND[r.outcome] || 'warn') }, r.message));
+      // 주문이 없어도 데이터 검증에 걸렸으면 초록색으로 안심시키지 않는다 (시작일 전은 데이터 문제가 아님)
+      const dataFail = (r.checks || []).some((c) => !c.passed && c.rule !== 'GOAL_STARTED');
+      const kind = r.outcome === 'NO_ACTION' && dataFail ? 'warn' : (OUTCOME_KIND[r.outcome] || 'warn');
+      $('planMessage').replaceChildren(el('div', { class: 'notice ' + kind }, r.message));
       // 저장된 주문안은 위 목록에 검증 결과와 함께 나오므로, 저장 안 된 결과(주문 없음)만 여기 보여 준다
       $('planChecks').replaceChildren(r.outcome === 'NO_ACTION' ? checksList(r.checks) : el('div'));
       if (r.outcome === 'REJECTED' && r.plan) $('planChecks').replaceChildren(planBlock(r.plan));

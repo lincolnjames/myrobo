@@ -45,7 +45,7 @@ JDK 17 이상이 필요하다.
 ./gradlew test          # Windows: gradlew.bat test
 ```
 
-처음에는 Gradle과 의존성을 내려받느라 몇 분 걸린다. 네트워크·DB 없이 도는 테스트 67개다.
+처음에는 Gradle과 의존성을 내려받느라 몇 분 걸린다. 네트워크·DB 없이 도는 테스트 68개다.
 
 - `RebalancePlannerGoldenTest`: 골든 케이스 15개. 주문 줄, 환전, 실행 후 비중, 현금까지 정답과 완전히 같아야 통과
 - `RoboConfigFilesTest`: 실제 설정 파일이 통과하는지, 그리고 비중 합계 오류·주식 상한 초과·거래 불가 종목이 시작을 막는지

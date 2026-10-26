@@ -277,6 +277,21 @@ class PlanSafetyTest {
         assertEquals("주문 없음", r.checks().get(Rule.SIZE_CAP.ordinal()).detail());
     }
 
+    @Test
+    void noActionMessageOnlyDoubtsTheDecisionWhenDataRulesFail() {
+        Decision dec = PlanDecider.decide(ENGINE, USER, false, MON, CAP);
+        Ctx c = new Ctx(dec.input(), dec.plan());
+        c.tradeDate = LocalDate.of(2026, 10, 27);
+        c.goalStart = MON;
+        String beforeStart = PlanService.noActionMessage(dec.plan(), c.run(), MON);
+        assertTrue(beforeStart.contains("목표 시작일 2026-11-02 전"), beforeStart);
+        assertFalse(beforeStart.contains("믿을 수 없어요"), beforeStart);
+
+        c.fxDate = null;
+        String stale = PlanService.noActionMessage(dec.plan(), c.run(), MON);
+        assertTrue(stale.contains("환율 신선도 검증에 걸려 이 판단도 믿을 수 없어요"), stale);
+    }
+
     // ── 일정 ──
 
     @Test

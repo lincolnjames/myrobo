@@ -104,9 +104,8 @@ public class PlanService {
         Plan plan = b.decision().plan();
 
         if (plan.action() == Action.NO_ACTION) {
-            String why = noActionText(plan);
-            return new CreateResult(Outcome.NO_ACTION, report.passed() ? why
-                    : why + " 다만 안전 검증에 걸린 항목이 있어 이 판단도 믿을 수 없어요.", null, checks);
+            return new CreateResult(Outcome.NO_ACTION, noActionMessage(plan, report, c.goal().startDate()), null,
+                    checks);
         }
 
         String base = sched.tradeDate() + "|CORE|" + c.version();
@@ -188,6 +187,20 @@ public class PlanService {
         RoboConfig.Safety s = c.safety();
         return new GuardInput.Limits(s.priceTradingDays(), s.holdingsDays(), s.fxMaxAgeBusinessDays(),
                 c.rebalance().maxPlanPct(), c.equityCapPct(), c.rebalance().minOrderUsd());
+    }
+
+    /** 주문이 없다는 판단 자체를 믿을 수 있는지는 데이터 규칙에 달렸다. 시작일 전이라는 건 판단과 무관하다. */
+    static String noActionMessage(Plan plan, Report report, LocalDate goalStart) {
+        String why = noActionText(plan);
+        Set<SafetyGuard.Rule> failed = new java.util.HashSet<>();
+        report.failures().forEach(f -> failed.add(f.rule()));
+        boolean beforeStart = failed.remove(SafetyGuard.Rule.GOAL_STARTED);
+        if (!failed.isEmpty()) {
+            return why + " 다만 " + String.join(", ", report.failures().stream()
+                    .filter(f -> f.rule() != SafetyGuard.Rule.GOAL_STARTED).map(SafetyGuard.Check::label).toList())
+                    + " 검증에 걸려 이 판단도 믿을 수 없어요.";
+        }
+        return beforeStart ? why + " (목표 시작일 " + goalStart + " 전이라 주문안이 나와도 발송되지 않아요.)" : why;
     }
 
     static String noActionText(Plan p) {
