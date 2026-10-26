@@ -20,7 +20,8 @@ public class JobController {
         this.collector = collector;
     }
 
-    @PostMapping("/collect")
+    /** charset을 명시해야 Windows PowerShell(Invoke-RestMethod)이 한글을 깨지 않고 읽는다. */
+    @PostMapping(value = "/collect", produces = "application/json;charset=UTF-8")
     public CollectResult collect() {
         return collector.run();
     }
