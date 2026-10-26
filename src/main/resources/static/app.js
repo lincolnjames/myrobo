@@ -41,7 +41,7 @@
       '목표 기간 ' + data.horizon,
       '잔고 기준일 ' + (data.asOf || '없음'),
       '시세 기준일 ' + (priceDates.length ? priceDates[0] : '없음'),
-      data.fx ? '환율 ' + krw.format(Number(data.fx.rate)) + '원 (' + data.fx.date + ')' : '환율 없음',
+      data.fx ? '환율 ' + usd.format(Number(data.fx.rate)) + '원 (' + data.fx.date + ')' : '환율 없음',
     ].join(' · ');
 
     if (!data.asOf) notice('warn', '아직 입력된 잔고가 없어요. 아래에서 오늘 잔고를 입력하세요.');
