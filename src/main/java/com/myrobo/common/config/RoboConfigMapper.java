@@ -3,6 +3,7 @@ package com.myrobo.common.config;
 import com.myrobo.common.config.RoboConfig.ChangeKind;
 import com.myrobo.common.config.RoboConfig.Goal;
 import com.myrobo.common.config.RoboConfig.Rebalance;
+import com.myrobo.common.config.RoboConfig.Safety;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -46,6 +47,9 @@ public final class RoboConfigMapper {
         Map<String, Object> guard = obj(root, "guard");
         Map<String, Object> accounts = obj(root, "accounts");
         Map<String, Object> core = obj(accounts, "accounts.core");
+        Map<String, Object> freshness = obj(guard, "guard.dataFreshness");
+        Map<String, Object> pending = obj(guard, "guard.pendingPlan");
+        Map<String, Object> fx = obj(obj(root, "dataSources"), "dataSources.fx");
 
         Map<String, Map<String, BigDecimal>> profiles = new LinkedHashMap<>();
         obj(root, "profiles").forEach((horizon, v) -> {
@@ -92,6 +96,12 @@ public final class RoboConfigMapper {
                         dec(rebalance.get("maxPlanPct"), "rebalance.maxPlanPct"),
                         integer(rebalance.get("initialBuildWeeks"), "rebalance.initialBuildWeeks")),
                 dec(guard.get("equityCapPct"), "guard.equityCapPct"),
+                new Safety(
+                        integer(freshness.get("priceTradingDays"), "guard.dataFreshness.priceTradingDays"),
+                        integer(freshness.get("holdingsDays"), "guard.dataFreshness.holdingsDays"),
+                        bool(pending.get("blockNewPlan"), "guard.pendingPlan.blockNewPlan"),
+                        integer(pending.get("expireTradingDays"), "guard.pendingPlan.expireTradingDays"),
+                        integer(fx.get("maxAgeBusinessDays"), "dataSources.fx.maxAgeBusinessDays")),
                 Collections.unmodifiableMap(new LinkedHashMap<>(root))); // YAML의 null 값 허용
     }
 
@@ -142,6 +152,14 @@ public final class RoboConfigMapper {
             errors.add(path + ": 정수가 아님 (" + v + ")");
             return 0;
         }
+    }
+
+    private boolean bool(Object v, String path) {
+        if (v instanceof Boolean b) {
+            return b;
+        }
+        errors.add(path + ": true/false가 아님 (" + v + ")");
+        return false;
     }
 
     private LocalDate date(Object v, String path) {

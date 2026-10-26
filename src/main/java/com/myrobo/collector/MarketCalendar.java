@@ -41,6 +41,49 @@ public final class MarketCalendar {
         return p;
     }
 
+    public LocalDate nextTradingDay(LocalDate d) {
+        LocalDate n = d.plusDays(1);
+        while (!isTradingDay(n)) {
+            n = n.plusDays(1);
+        }
+        return n;
+    }
+
+    /** d가 거래일이면 d, 아니면 그다음 거래일. */
+    public LocalDate onOrAfter(LocalDate d) {
+        return isTradingDay(d) ? d : nextTradingDay(d);
+    }
+
+    /** d부터 거래일 n개를 더 간 날 (n = 0이면 d). d는 거래일이어야 한다. */
+    public LocalDate plusTradingDays(LocalDate d, int n) {
+        LocalDate x = d;
+        for (int i = 0; i < n; i++) {
+            x = nextTradingDay(x);
+        }
+        return x;
+    }
+
+    /** from 다음 날부터 to까지(to 포함) 거래일 수. to가 from 이전이거나 같으면 0. */
+    public int tradingDaysAfter(LocalDate from, LocalDate to) {
+        int n = 0;
+        for (LocalDate x = from.plusDays(1); !x.isAfter(to); x = x.plusDays(1)) {
+            if (isTradingDay(x)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** 그 주(월~일)의 첫 거래일인가. 월요일이 휴장이면 화요일이 첫 거래일이다. */
+    public boolean isFirstTradingDayOfWeek(LocalDate d) {
+        return isTradingDay(d) && previousTradingDay(d).isBefore(d.with(DayOfWeek.MONDAY));
+    }
+
+    /** 그달의 첫 거래일인가. */
+    public boolean isFirstTradingDayOfMonth(LocalDate d) {
+        return isTradingDay(d) && previousTradingDay(d).isBefore(d.withDayOfMonth(1));
+    }
+
     /** now 시점에 일봉이 나와 있어야 하는 가장 최근 거래일. */
     public LocalDate lastCompletedSession(Instant now) {
         ZonedDateTime ny = now.atZone(NEW_YORK);

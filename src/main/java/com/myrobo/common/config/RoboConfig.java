@@ -29,6 +29,7 @@ public record RoboConfig(
         Map<String, Set<String>> tradableByBroker,
         Rebalance rebalance,
         BigDecimal equityCapPct,
+        Safety safety,
         Map<String, Object> raw) {
 
     /** 주식으로 보는 자산군. 주식 비중 상한 검사에 쓰인다. */
@@ -37,6 +38,23 @@ public record RoboConfig(
     public enum ChangeKind { BUGFIX, STRICTER, LOOSER, POLICY }
 
     public record Goal(String horizon, LocalDate startDate, BigDecimal maxDrawdownPct, String baseCurrency) {
+    }
+
+    /**
+     * 안전 검증의 신선도·미완료 주문안 규칙.
+     *
+     * @param priceTradingDays      시세가 최근 이 거래일 수 안의 것이어야 함 (2 = 직전 거래일이나 그 전날)
+     * @param holdingsDays          잔고 입력이 이 날수보다 오래되면 주문안 중단
+     * @param blockNewPlan          미완료 주문안이 있으면 새 주문안을 만들지 않음 (1단계는 반드시 true)
+     * @param expireTradingDays     발송된 주문안이 유효한 거래일 수. 지나면 만료
+     * @param fxMaxAgeBusinessDays  환율이 이 영업일 수보다 오래되면 주문안 중단
+     */
+    public record Safety(
+            int priceTradingDays,
+            int holdingsDays,
+            boolean blockNewPlan,
+            int expireTradingDays,
+            int fxMaxAgeBusinessDays) {
     }
 
     /** 리밸런싱 설정. 파일에는 퍼센트로 적는다. */
@@ -78,5 +96,16 @@ public record RoboConfig(
             out.merge(key, pct.divide(BigDecimal.valueOf(100), MathContext.DECIMAL128), BigDecimal::add);
         });
         return out;
+    }
+
+    /** 주식으로 보는 종목 (주식 비중 상한 검사 대상). 위성 몫은 모의 운용 중이라 실제 종목이 없다. */
+    public Set<String> equitySymbols() {
+        Set<String> out = new java.util.TreeSet<>();
+        instruments.forEach((assetClass, symbol) -> {
+            if (EQUITY_CLASSES.contains(assetClass)) {
+                out.add(symbol);
+            }
+        });
+        return Set.copyOf(out);
     }
 }

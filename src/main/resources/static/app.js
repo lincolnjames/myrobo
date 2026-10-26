@@ -177,6 +177,110 @@
     }
   }
 
+  // ── 주문안 ──
+
+  const STATUS = {
+    SENT: ['ok', '발송 · 이대로 주문'], REJECTED: ['bad', '폐기 · 주문 금지'], DONE: ['muted', '완료'],
+    EXPIRED: ['muted', '만료'], DRAFT: ['warn', '초안'],
+  };
+  const TYPE = { CORE: '코어 리밸런싱', INITIAL_BUILD: '분할 구축' };
+  const REASON = {
+    BAND_BREACH: '허용 범위 이탈', BAND_FIXED_BY_CASH: '현금으로 이탈 해소', CASH_DEPLOY: '쌓인 현금 투입',
+    INITIAL_BUILD: '나눠서 목표로', PROFILE_SHIFT: '프로필 전환',
+  };
+  const OUTCOME_KIND = { SENT: 'ok', REJECTED: 'bad', NO_ACTION: 'ok', OPEN_EXISTS: 'warn', ALREADY_TODAY: 'warn' };
+
+  function badge(status) {
+    const [kind, text] = STATUS[status] || ['muted', status];
+    return el('span', { class: 'badge ' + kind }, text);
+  }
+
+  function checksList(checks) {
+    if (!checks || !checks.length) return el('div');
+    return el('ul', { class: 'checks' }, checks.map((c) => el('li', { class: c.passed ? 'pass' : 'fail' },
+      el('span', { class: 'mark' }, c.passed ? '✓' : '✗'), c.label, el('span', { class: 'muted' }, ' — ' + c.detail))));
+  }
+
+  /** 주문 순서대로: 매도 → 환전 → 매수. 매도 대금과 환전한 달러로 매수한다. */
+  function linesTable(p) {
+    const rows = [];
+    let n = 0;
+    const line = (side, it) => el('tr', {},
+      el('td', {}, String(++n)), el('td', {}, side === 'SELL' ? '매도' : '매수'),
+      el('td', {}, el('strong', {}, it.symbol)), el('td', {}, krw.format(it.qty) + '주'),
+      el('td', {}, fmtUsd(it.estPrice)), el('td', {}, fmtUsd(it.estAmount)));
+    p.items.filter((i) => i.side === 'SELL').forEach((i) => rows.push(line('SELL', i)));
+    if (p.fxUsd != null) {
+      rows.push(el('tr', { class: 'fx' }, el('td', {}, String(++n)), el('td', {}, '환전'),
+        el('td', {}, '원화 → 달러'), el('td', {}, ''), el('td', {}, ''),
+        el('td', {}, fmtUsd(p.fxUsd) + ' (약 ' + fmtKrw(p.fxKrwEst) + ')')));
+    }
+    p.items.filter((i) => i.side === 'BUY').forEach((i) => rows.push(line('BUY', i)));
+    if (!rows.length) return el('p', { class: 'meta' }, '주문 줄 없음');
+    return el('div', { class: 'table-wrap' }, el('table', {},
+      el('thead', {}, el('tr', {}, ['순서', '구분', '종목', '수량', '예상 가격', '예상 금액'].map((h) => el('th', {}, h)))),
+      el('tbody', {}, rows)));
+  }
+
+  function planBlock(p) {
+    const head = el('div', { class: 'plan-head' },
+      el('strong', {}, '#' + p.id + ' ' + (TYPE[p.type] || p.type)), badge(p.status),
+      el('span', { class: 'meta' }, '주문일 ' + p.tradeDate + (p.status === 'SENT' ? ' · ' + p.expiresAt + '까지 유효' : '')
+        + ' · ' + (REASON[p.reason] || p.reason) + (p.sizePct != null ? ' · 총자산의 ' + Number(p.sizePct).toFixed(2) + '%' : '')));
+    const box = el('div', {}, head);
+    if (p.note) box.append(el('p', { class: 'meta' }, p.note));
+    if (p.status === 'REJECTED') {
+      box.append(el('div', { class: 'notice bad' }, '안전 검증에 걸려 폐기된 계산이에요. 이대로 주문하지 마세요.'));
+      box.append(el('details', {}, el('summary', { class: 'meta' }, '폐기된 계산 보기'), linesTable(p)));
+    } else {
+      box.append(linesTable(p));
+    }
+    box.append(checksList(p.checks));
+    return box;
+  }
+
+  function renderPlans(o) {
+    const s = o.schedule;
+    $('planSchedule').textContent = [
+      '주문일(미국) ' + s.tradeDate,
+      s.rebalanceDay ? '월 정기 점검일' : '정기 점검일 아님',
+      s.splitDay ? '분할 주문일' : '다음 분할 주문일 ' + s.nextSplitDay,
+    ].join(' · ');
+    $('planOpen').replaceChildren(o.open ? planBlock(o.open) : el('p', { class: 'meta' }, '진행 중인 주문안 없음'));
+    $('makePlan').disabled = !!o.open;
+    $('planHistory').replaceChildren(...(o.recent || []).map((p) => el('tr', {},
+      el('td', {}, '#' + p.id), el('td', {}, p.tradeDate), el('td', {}, TYPE[p.type] || p.type),
+      el('td', {}, badge(p.status)), el('td', {}, REASON[p.reason] || p.reason),
+      el('td', {}, p.sizePct == null ? '–' : Number(p.sizePct).toFixed(2) + '%'))));
+  }
+
+  async function loadPlans() {
+    try {
+      const res = await fetch('/api/plans');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      renderPlans(await res.json());
+    } catch (e) {
+      $('planSchedule').textContent = '주문안 불러오기 실패: ' + e.message;
+    }
+  }
+
+  async function makePlan() {
+    $('makePlan').disabled = true;
+    try {
+      const res = await fetch('/api/plans', { method: 'POST', headers: { 'X-Robo-Request': '1' } });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const r = await res.json();
+      $('planMessage').replaceChildren(el('div', { class: 'notice ' + (OUTCOME_KIND[r.outcome] || 'warn') }, r.message));
+      // 저장된 주문안은 위 목록에 검증 결과와 함께 나오므로, 저장 안 된 결과(주문 없음)만 여기 보여 준다
+      $('planChecks').replaceChildren(r.outcome === 'NO_ACTION' ? checksList(r.checks) : el('div'));
+      if (r.outcome === 'REJECTED' && r.plan) $('planChecks').replaceChildren(planBlock(r.plan));
+    } catch (e) {
+      $('planMessage').replaceChildren(el('div', { class: 'notice bad' }, '주문안을 만들 수 없어요: ' + e.message));
+    } finally {
+      await loadPlans();
+    }
+  }
+
   async function load() {
     try {
       const res = await fetch('/api/portfolio');
@@ -189,6 +293,8 @@
 
   $('form').addEventListener('submit', save);
   $('addLine').addEventListener('click', () => $('lines').append(lineRow('', '', '')));
-  window.robo = { render, collectForm, save, load };
+  $('makePlan').addEventListener('click', makePlan);
+  window.robo = { render, collectForm, save, load, loadPlans, makePlan };
   load();
+  loadPlans();
 })();

@@ -108,6 +108,22 @@ public final class RoboConfigValidator {
         if (!between(c.equityCapPct(), BigDecimal.ZERO, HUNDRED, true)) {
             p.add("guard.equityCapPct는 0 이상 100 이하여야 함");
         }
+        RoboConfig.Safety g = c.safety();
+        if (g.priceTradingDays() < 1) {
+            p.add("guard.dataFreshness.priceTradingDays는 1 이상이어야 함");
+        }
+        if (g.holdingsDays() < 1) {
+            p.add("guard.dataFreshness.holdingsDays는 1 이상이어야 함");
+        }
+        if (!g.blockNewPlan()) {
+            p.add("guard.pendingPlan.blockNewPlan은 1단계에서 끌 수 없음 (같은 주문을 두 번 넣는 사고 방지)");
+        }
+        if (g.expireTradingDays() < 1) {
+            p.add("guard.pendingPlan.expireTradingDays는 1 이상이어야 함");
+        }
+        if (g.fxMaxAgeBusinessDays() < 1) {
+            p.add("dataSources.fx.maxAgeBusinessDays는 1 이상이어야 함");
+        }
         return p;
     }
 

@@ -57,6 +57,13 @@ class RoboConfigFilesTest {
     }
 
     @Test
+    void openPlanBlockCannotBeTurnedOff() throws IOException {
+        ConfigException e = assertThrows(ConfigException.class, () -> load(s ->
+                s.replace("blockNewPlan: true", "blockNewPlan: false")));
+        assertTrue(e.problems().stream().anyMatch(p -> p.contains("blockNewPlan")), e.getMessage());
+    }
+
+    @Test
     void hashIgnoresWindowsLineEndings() throws IOException {
         byte[] unix = Files.readAllBytes(REAL);
         byte[] windows = new String(unix, StandardCharsets.UTF_8).replace("\r\n", "\n").replace("\n", "\r\n")

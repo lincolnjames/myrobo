@@ -51,7 +51,10 @@ public class HoldingsRepository {
             values (:account, :asOf, :symbol, :qty, :avgPrice)""";
     static final String UPSERT_CASH = """
             insert into cash_balance (account_id, as_of, currency, amount) values (:account, :asOf, :currency, :amount)
-            on conflict (account_id, as_of, currency) do update set amount = excluded.amount""";
+            on conflict (account_id, as_of, currency) do update set amount = excluded.amount, entered_at = now()""";
+    /** 그 기준일 잔고를 마지막으로 저장한 시각. 저장할 때마다 현금 두 줄이 함께 갱신된다. */
+    static final String ENTERED_AT =
+            "select max(entered_at) from cash_balance where account_id = :account and as_of = :asOf";
 
     // ── 평가용 ──
     static final String LATEST_PRICES = """
@@ -114,6 +117,15 @@ public class HoldingsRepository {
         return jdbc.sql(POSITIONS_AT).param("account", account).param("asOf", asOf)
                 .query((rs, n) -> new Position(rs.getString("symbol"), rs.getLong("qty"), rs.getBigDecimal("avg_price")))
                 .list();
+    }
+
+    public Optional<java.time.Instant> enteredAt(long account, LocalDate asOf) {
+        return jdbc.sql(ENTERED_AT).param("account", account).param("asOf", asOf)
+                .query((rs, n) -> {
+                    java.time.OffsetDateTime t = rs.getObject(1, java.time.OffsetDateTime.class);
+                    return t == null ? null : t.toInstant();
+                })
+                .optional();
     }
 
     public Cash cashAt(long account, LocalDate asOf) {
