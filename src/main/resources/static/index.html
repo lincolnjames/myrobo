@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>myrobo · 내 포트폴리오</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #1b1f24; --muted: #66707c; --line: #e3e6ea;
+    --accent: #2563eb; --ok: #15803d; --ok-bg: #e8f6ed; --warn: #b45309; --warn-bg: #fdf3e2;
+    --bad: #b91c1c; --bad-bg: #fdecec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --card: #1a1e24; --ink: #e8eaed; --muted: #9aa3ad; --line: #2c323a;
+      --accent: #7aa2ff; --ok: #4ade80; --ok-bg: #12301f; --warn: #fbbf24; --warn-bg: #33270e;
+      --bad: #f87171; --bad-bg: #3a1717;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-top: 16px; }
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .stat .label { color: var(--muted); font-size: 13px; }
+  .stat .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .notice { border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-size: 14px; }
+  .notice.warn { background: var(--warn-bg); color: var(--warn); }
+  .notice.bad { background: var(--bad-bg); color: var(--bad); }
+  .notice.ok { background: var(--ok-bg); color: var(--ok); }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; }
+  .badge.ok { background: var(--ok-bg); color: var(--ok); }
+  .badge.bad { background: var(--bad-bg); color: var(--bad); }
+  .muted { color: var(--muted); }
+  form .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  input { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+          background: var(--bg); color: var(--ink); font: inherit; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  #lines input { min-width: 90px; }
+  .row-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line);
+           background: var(--card); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .6; cursor: default; }
+  ul.errors { margin: 8px 0 0; padding-left: 18px; }
+  .foot { margin-top: 24px; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>내 포트폴리오</h1>
+  <div class="meta" id="meta">불러오는 중…</div>
+  <div id="notices"></div>
+
+  <section class="card">
+    <div class="summary" id="summary"></div>
+  </section>
+
+  <section class="card">
+    <h2>목표 대비 비중</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>종목</th><th>보유</th><th>종가</th><th>평가액</th><th>현재</th><th>목표</th><th>차이</th><th>허용</th><th>상태</th></tr>
+        </thead>
+        <tbody id="weights"></tbody>
+      </table>
+    </div>
+    <div id="excluded" class="meta"></div>
+  </section>
+
+  <section class="card">
+    <h2>잔고 입력</h2>
+    <p class="meta" style="margin-top:-6px">증권사 앱에 보이는 그대로 입력하세요. 같은 날짜로 다시 저장하면 그날 기록을 통째로 바꿉니다.</p>
+    <form id="form" novalidate>
+      <div class="grid">
+        <div><label for="asOf">기준일</label><input type="date" id="asOf" required></div>
+        <div><label for="cashKrw">원화 현금 (원)</label><input id="cashKrw" inputmode="numeric" placeholder="0"></div>
+        <div><label for="cashUsd">달러 현금 ($)</label><input id="cashUsd" inputmode="decimal" placeholder="0.00"></div>
+      </div>
+      <div class="table-wrap" style="margin-top:16px">
+        <table>
+          <thead><tr><th>종목</th><th>보유 수량 (주)</th><th>평균 단가 ($, 선택)</th></tr></thead>
+          <tbody id="lines"></tbody>
+        </table>
+      </div>
+      <div class="row-actions">
+        <button type="button" id="addLine">+ 종목 추가</button>
+        <button type="submit" class="primary" id="save">저장</button>
+      </div>
+      <div id="formMessage"></div>
+    </form>
+  </section>
+
+  <p class="foot">비중 계산과 이탈 판정은 리밸런싱 엔진과 같은 규칙(5/25, 현금 버퍼 1%)을 씁니다.
+    주문 계획은 안전 검증 단계가 완성된 뒤 따로 제공됩니다. 이 화면만 보고 주문하지 마세요.</p>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

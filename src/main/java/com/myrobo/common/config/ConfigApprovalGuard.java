@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Component;
  * </ul>
  */
 @Component
+@Order(1) // 다른 시작 작업(기준 데이터 동기화 등)보다 먼저: 승인 안 된 설정이 DB에 반영되지 않게
 public class ConfigApprovalGuard implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ConfigApprovalGuard.class);

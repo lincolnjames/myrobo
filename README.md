@@ -16,11 +16,14 @@
 | 설정 승인 검사 | `ConfigApprovalGuard` | 승인 안 된 설정 파일이면 시작 거부 |
 | 데이터 수집 | `src/main/java/com/myrobo/collector` | 매일 08:00 일봉·휴장일·환율 수집 |
 | 배치 기록·수동 실행 | `src/main/java/com/myrobo/ops` | job_run 기록, `POST /internal/jobs/collect` |
+| 잔고 입력·비중 화면 | `src/main/java/com/myrobo/holdings`, `src/main/resources/static` | http://localhost:8080 |
+| 비중·이탈 계산 | `portfolio/Valuation.java` | 엔진과 같은 5/25·버퍼 규칙 (교차 검증 테스트) |
+| 로컬 전용 보호 | `src/main/java/com/myrobo/web` | Host 검사 + 변경 요청 헤더 필수 |
 | DB 스키마 | `src/main/resources/db/migration` | V1 1단계 테이블, V2 휴장일 |
 | 기준 구현·케이스 생성 | `tools/rebalance_ref.py`, `tools/gen_cases.py` | 정답 계산기 |
 | 데이터 소스 확인 | `tools/check_data_sources.py` | Tiingo·Finnhub·SEC·환율 API 확인 |
 
-나머지 패키지(`guard`, `plan`, `web`, `signal`, `backtest`)는 각자의 `package-info.java`에 맡을 일만 적혀 있고, 다음 작업에서 채운다.
+나머지 패키지(`guard`, `plan`, `signal`, `backtest`)는 각자의 `package-info.java`에 맡을 일만 적혀 있고, 다음 작업에서 채운다.
 
 ### 데이터 수집 규칙
 
@@ -40,12 +43,13 @@ JDK 17 이상이 필요하다.
 ./gradlew test          # Windows: gradlew.bat test
 ```
 
-처음에는 Gradle과 의존성을 내려받느라 몇 분 걸린다. 네트워크·DB 없이 도는 테스트 40개다.
+처음에는 Gradle과 의존성을 내려받느라 몇 분 걸린다. 네트워크·DB 없이 도는 테스트 49개다.
 
 - `RebalancePlannerGoldenTest`: 골든 케이스 15개. 주문 줄, 환전, 실행 후 비중, 현금까지 정답과 완전히 같아야 통과
 - `RoboConfigFilesTest`: 실제 설정 파일이 통과하는지, 그리고 비중 합계 오류·주식 상한 초과·거래 불가 종목이 시작을 막는지
 - `CollectorParsingTest`: Tiingo·Finnhub·수출입은행·Frankfurter 응답 해석, API 키가 URL에 남지 않는지
 - `CollectorFlowTest`: 서머타임·휴장일 거래일 계산, 증분·전체 재수집, 호출 한도, 환율 예비 경로, 한 종목 실패 격리
+- `HoldingsLogicTest`: 잔고 입력 검증(모든 오류를 한 번에), 비중·목표·이탈 계산, 화면의 이탈 표시가 리밸런싱 엔진 판단과 같은지, 외부 Host·헤더 없는 변경 요청 거부
 
 ### 2. Supabase 준비
 
@@ -70,10 +74,20 @@ $env:FINNHUB_KEY="..."
 수집은 매일 08:00(KST)에 자동으로 돈다. 바로 돌려 보려면 앱이 켜진 상태에서 다른 PowerShell 창에서:
 
 ```powershell
-Invoke-RestMethod -Method Post http://localhost:8080/internal/jobs/collect | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Post -Headers @{'X-Robo-Request'='1'} http://localhost:8080/internal/jobs/collect | ConvertTo-Json -Depth 5
 ```
 
+`X-Robo-Request` 헤더가 없는 변경 요청은 403으로 거부된다 (다른 웹사이트가 브라우저를 통해 몰래 보내는 요청을 막는 장치).
 처음 실행은 종목마다 2000년 이후 전체 이력을 받아서 1분 정도 걸린다. 결과는 Supabase `robo` 스키마의 `price_daily`, `fx_rate`, `market_holiday`, `job_run`에서 볼 수 있다.
+
+### 4. 잔고 입력
+
+앱이 켜진 상태에서 브라우저로 http://localhost:8080 을 연다. 증권사 앱에 보이는 보유 수량과 원화·달러 현금을 기준일과 함께 넣고 저장하면, 위쪽 표에 현재 비중과 목표(현금 버퍼 1% 반영), 허용 범위 이탈 여부가 나온다.
+
+- 같은 기준일로 다시 저장하면 그날 기록을 통째로 바꾼다. 이전 날짜 기록은 남는다
+- 화이트리스트(VTI·SCHR·GLDM·BIL) 밖의 종목은 저장은 되지만 비중 계산에서 빠진다 (시스템 밖 자산)
+- 잔고가 7일보다 오래되면 경고가 뜬다. 주문안 단계에서는 이 경우 주문안을 만들지 않는다
+- 이 화면은 주문을 제안하지 않는다. 주문안은 안전 검증(`guard`)이 끝난 뒤 별도로 나온다
 
 처음 시작하면 로그에 `현재 설정(version 2026.10.1, ...)을 최초 승인으로 기록함`이 나온다.
 그 뒤로 `config/robo-config.yml`을 고치고 다시 시작하면 **승인되지 않은 설정이라 시작이 거부되는 게 정상**이다.
@@ -105,7 +119,6 @@ Invoke-RestMethod -Method Post http://localhost:8080/internal/jobs/collect | Con
 
 ## 다음 작업 (1단계 나머지)
 
-1. `web`: 잔고·현금·체결 입력 화면 (수집 대상에 보유 종목 추가)
-2. `guard`: 데이터 신선도, 미완료 주문안, 주문안 크기 상한, 주식 비중 상한 검증
-3. `plan`: 주문안 저장·상태 전이, 텔레그램 알림
-4. `ops`: 수집 뒤 주문안 배치 연결, 완료 신호(외부 감시), 주간 백업
+1. `guard`: 데이터 신선도, 미완료 주문안, 주문안 크기 상한, 주식 비중 상한 검증
+2. `plan`: 주문안 저장·상태 전이, 체결 입력, 텔레그램 알림
+3. `ops`: 수집 뒤 주문안 배치 연결, 완료 신호(외부 감시), 주간 백업
