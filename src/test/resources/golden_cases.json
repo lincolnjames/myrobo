@@ -1,0 +1,1145 @@
+{
+  "config": {
+    "bandAbs": "0.05",
+    "bandRel": "0.25",
+    "minOrderUsd": "50",
+    "cashBufferPct": "0.01",
+    "maxPlanPct": "0.25"
+  },
+  "cases": [
+    {
+      "id": "01_balanced_no_action",
+      "description": "목표 근처, 정기일 아님 → 아무것도 안 함",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": false,
+        "mode": "NORMAL",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.35,
+          "MID_TREASURY": 0.3,
+          "GOLD": 0.1,
+          "T_BILL": 0.25
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 200,
+          "T_BILL": 100
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 62,
+          "GOLD": 10,
+          "T_BILL": 50
+        },
+        "cash": {
+          "USD": 200,
+          "KRW": 0
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "NO_ACTION",
+        "reason": "WITHIN_BAND",
+        "lines": [],
+        "fx": null,
+        "sizePct": "0.00",
+        "scaleFactor": "1.0000",
+        "totalUsd": "20090.00",
+        "breachesBefore": [],
+        "breachesAfter": [],
+        "weightsAfterPct": {
+          "GOLD": "9.96",
+          "MID_TREASURY": "29.32",
+          "T_BILL": "24.89",
+          "US_STOCK": "34.84"
+        },
+        "cashAfter": {
+          "USD": "200.00",
+          "KRW": "0"
+        },
+        "excludedHoldings": []
+      }
+    },
+    {
+      "id": "02_rebalance_day_no_excess_cash",
+      "description": "정기일이지만 버퍼를 넘는 현금이 없음 → 아무것도 안 함",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": true,
+        "mode": "NORMAL",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.35,
+          "MID_TREASURY": 0.3,
+          "GOLD": 0.1,
+          "T_BILL": 0.25
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 200,
+          "T_BILL": 100
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 62,
+          "GOLD": 10,
+          "T_BILL": 50
+        },
+        "cash": {
+          "USD": 200,
+          "KRW": 0
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "NO_ACTION",
+        "reason": "NO_EXCESS_CASH",
+        "lines": [],
+        "fx": null,
+        "sizePct": "0.00",
+        "scaleFactor": "1.0000",
+        "totalUsd": "20090.00",
+        "breachesBefore": [],
+        "breachesAfter": [],
+        "weightsAfterPct": {
+          "GOLD": "9.96",
+          "MID_TREASURY": "29.32",
+          "T_BILL": "24.89",
+          "US_STOCK": "34.84"
+        },
+        "cashAfter": {
+          "USD": "200.00",
+          "KRW": "0"
+        },
+        "excludedHoldings": []
+      }
+    },
+    {
+      "id": "03_cash_deploy_with_fx",
+      "description": "정기일, 원화 280만원 입금 → 매도 없이 부족한 자산부터 매수, 필요한 만큼만 환전",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": true,
+        "mode": "NORMAL",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.35,
+          "MID_TREASURY": 0.3,
+          "GOLD": 0.1,
+          "T_BILL": 0.25
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 200,
+          "T_BILL": 100
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 62,
+          "GOLD": 10,
+          "T_BILL": 50
+        },
+        "cash": {
+          "USD": 200,
+          "KRW": 2800000
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "BUY_ONLY",
+        "reason": "CASH_DEPLOY",
+        "lines": [
+          {
+            "side": "BUY",
+            "symbol": "MID_TREASURY",
+            "qty": 8,
+            "estAmountUsd": "760.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "T_BILL",
+            "qty": 5,
+            "estAmountUsd": "500.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "US_STOCK",
+            "qty": 2,
+            "estAmountUsd": "500.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "GOLD",
+            "qty": 1,
+            "estAmountUsd": "200.00"
+          }
+        ],
+        "fx": {
+          "usd": 1981,
+          "krwEst": 2773400
+        },
+        "sizePct": "8.87",
+        "scaleFactor": "1.0000",
+        "totalUsd": "22090.00",
+        "breachesBefore": [],
+        "breachesAfter": [],
+        "weightsAfterPct": {
+          "GOLD": "9.96",
+          "MID_TREASURY": "30.10",
+          "T_BILL": "24.90",
+          "US_STOCK": "33.95"
+        },
+        "cashAfter": {
+          "USD": "221.00",
+          "KRW": "26600"
+        },
+        "excludedHoldings": []
+      }
+    },
+    {
+      "id": "04_stock_rally_abs_band_breach",
+      "description": "주식 급등으로 목표 대비 +5%p 초과 → 현금으로 못 메워 매도 포함 전체 리밸런싱",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": false,
+        "mode": "NORMAL",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.35,
+          "MID_TREASURY": 0.3,
+          "GOLD": 0.1,
+          "T_BILL": 0.25
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 320,
+          "MID_TREASURY": 95,
+          "GOLD": 200,
+          "T_BILL": 100
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 62,
+          "GOLD": 10,
+          "T_BILL": 50
+        },
+        "cash": {
+          "USD": 200,
+          "KRW": 0
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "FULL",
+        "reason": "BAND_BREACH",
+        "lines": [
+          {
+            "side": "SELL",
+            "symbol": "US_STOCK",
+            "qty": 4,
+            "estAmountUsd": "1280.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "MID_TREASURY",
+            "qty": 6,
+            "estAmountUsd": "570.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "T_BILL",
+            "qty": 4,
+            "estAmountUsd": "400.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "GOLD",
+            "qty": 1,
+            "estAmountUsd": "200.00"
+          }
+        ],
+        "fx": null,
+        "sizePct": "11.11",
+        "scaleFactor": "1.0000",
+        "totalUsd": "22050.00",
+        "breachesBefore": [
+          "US_STOCK"
+        ],
+        "breachesAfter": [],
+        "weightsAfterPct": {
+          "GOLD": "9.98",
+          "MID_TREASURY": "29.30",
+          "T_BILL": "24.49",
+          "US_STOCK": "34.83"
+        },
+        "cashAfter": {
+          "USD": "310.00",
+          "KRW": "0"
+        },
+        "excludedHoldings": []
+      }
+    },
+    {
+      "id": "05_gold_drop_rel_band_breach",
+      "description": "금 하락으로 -2.5%p(목표 10%의 25%) 초과 → 상대 기준 위반, 전체 리밸런싱",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": false,
+        "mode": "NORMAL",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.35,
+          "MID_TREASURY": 0.3,
+          "GOLD": 0.1,
+          "T_BILL": 0.25
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 140,
+          "T_BILL": 100
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 62,
+          "GOLD": 10,
+          "T_BILL": 50
+        },
+        "cash": {
+          "USD": 200,
+          "KRW": 0
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "FULL",
+        "reason": "BAND_BREACH",
+        "lines": [
+          {
+            "side": "SELL",
+            "symbol": "US_STOCK",
+            "qty": 1,
+            "estAmountUsd": "250.00"
+          },
+          {
+            "side": "SELL",
+            "symbol": "T_BILL",
+            "qty": 1,
+            "estAmountUsd": "100.00"
+          },
+          {
+            "side": "SELL",
+            "symbol": "MID_TREASURY",
+            "qty": 1,
+            "estAmountUsd": "95.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "GOLD",
+            "qty": 3,
+            "estAmountUsd": "420.00"
+          }
+        ],
+        "fx": null,
+        "sizePct": "4.44",
+        "scaleFactor": "1.0000",
+        "totalUsd": "19490.00",
+        "breachesBefore": [
+          "GOLD"
+        ],
+        "breachesAfter": [],
+        "weightsAfterPct": {
+          "GOLD": "9.34",
+          "MID_TREASURY": "29.73",
+          "T_BILL": "25.14",
+          "US_STOCK": "34.63"
+        },
+        "cashAfter": {
+          "USD": "225.00",
+          "KRW": "0"
+        },
+        "excludedHoldings": []
+      }
+    },
+    {
+      "id": "06_gold_drop_within_rel_band",
+      "description": "금 하락했지만 -2.5%p 이내 → 아무것도 안 함 (경계값 확인)",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": false,
+        "mode": "NORMAL",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.35,
+          "MID_TREASURY": 0.3,
+          "GOLD": 0.1,
+          "T_BILL": 0.25
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 165,
+          "T_BILL": 100
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 62,
+          "GOLD": 10,
+          "T_BILL": 50
+        },
+        "cash": {
+          "USD": 200,
+          "KRW": 0
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "NO_ACTION",
+        "reason": "WITHIN_BAND",
+        "lines": [],
+        "fx": null,
+        "sizePct": "0.00",
+        "scaleFactor": "1.0000",
+        "totalUsd": "19740.00",
+        "breachesBefore": [],
+        "breachesAfter": [],
+        "weightsAfterPct": {
+          "GOLD": "8.36",
+          "MID_TREASURY": "29.84",
+          "T_BILL": "25.33",
+          "US_STOCK": "35.46"
+        },
+        "cashAfter": {
+          "USD": "200.00",
+          "KRW": "0"
+        },
+        "excludedHoldings": []
+      }
+    },
+    {
+      "id": "07_breach_fixed_by_cash",
+      "description": "금 상대 기준 위반이지만 쌓인 달러 현금으로 메울 수 있음 → 매도 없이 매수만",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": false,
+        "mode": "NORMAL",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.35,
+          "MID_TREASURY": 0.3,
+          "GOLD": 0.1,
+          "T_BILL": 0.25
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 140,
+          "T_BILL": 100
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 62,
+          "GOLD": 10,
+          "T_BILL": 50
+        },
+        "cash": {
+          "USD": 1200,
+          "KRW": 0
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "BUY_ONLY",
+        "reason": "BAND_FIXED_BY_CASH",
+        "lines": [
+          {
+            "side": "BUY",
+            "symbol": "GOLD",
+            "qty": 5,
+            "estAmountUsd": "700.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "MID_TREASURY",
+            "qty": 2,
+            "estAmountUsd": "190.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "T_BILL",
+            "qty": 1,
+            "estAmountUsd": "100.00"
+          }
+        ],
+        "fx": null,
+        "sizePct": "4.83",
+        "scaleFactor": "1.0000",
+        "totalUsd": "20490.00",
+        "breachesBefore": [
+          "GOLD"
+        ],
+        "breachesAfter": [],
+        "weightsAfterPct": {
+          "GOLD": "10.25",
+          "MID_TREASURY": "29.67",
+          "T_BILL": "24.89",
+          "US_STOCK": "34.16"
+        },
+        "cashAfter": {
+          "USD": "210.00",
+          "KRW": "0"
+        },
+        "excludedHoldings": []
+      }
+    },
+    {
+      "id": "08_small_order_dropped",
+      "description": "정기일, 단기 국채(1주 45달러)에 1주만 살 돈이 배정 → 50달러 미만이라 주문 없음",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": true,
+        "mode": "NORMAL",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.35,
+          "MID_TREASURY": 0.3,
+          "GOLD": 0.1,
+          "T_BILL": 0.25
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 200,
+          "T_BILL": 45
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 63,
+          "GOLD": 10,
+          "T_BILL": 108
+        },
+        "cash": {
+          "USD": 270,
+          "KRW": 0
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "NO_ACTION",
+        "reason": "ROUNDED_TO_NOTHING",
+        "lines": [],
+        "fx": null,
+        "sizePct": "0.00",
+        "scaleFactor": "1.0000",
+        "totalUsd": "20115.00",
+        "breachesBefore": [],
+        "breachesAfter": [],
+        "weightsAfterPct": {
+          "GOLD": "9.94",
+          "MID_TREASURY": "29.75",
+          "T_BILL": "24.16",
+          "US_STOCK": "34.80"
+        },
+        "cashAfter": {
+          "USD": "270.00",
+          "KRW": "0"
+        },
+        "excludedHoldings": []
+      }
+    },
+    {
+      "id": "09_under_one_share_dropped",
+      "description": "주식에 1주(250달러)보다 적은 금액이 배정돼 제외, 남는 돈은 다른 부족 자산에 1주씩",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": true,
+        "mode": "NORMAL",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.35,
+          "MID_TREASURY": 0.3,
+          "GOLD": 0.1,
+          "T_BILL": 0.25
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 200,
+          "T_BILL": 100
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 62,
+          "GOLD": 10,
+          "T_BILL": 50
+        },
+        "cash": {
+          "USD": 500,
+          "KRW": 0
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "BUY_ONLY",
+        "reason": "CASH_DEPLOY",
+        "lines": [
+          {
+            "side": "BUY",
+            "symbol": "MID_TREASURY",
+            "qty": 2,
+            "estAmountUsd": "190.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "T_BILL",
+            "qty": 1,
+            "estAmountUsd": "100.00"
+          }
+        ],
+        "fx": null,
+        "sizePct": "1.42",
+        "scaleFactor": "1.0000",
+        "totalUsd": "20390.00",
+        "breachesBefore": [],
+        "breachesAfter": [],
+        "weightsAfterPct": {
+          "GOLD": "9.81",
+          "MID_TREASURY": "29.82",
+          "T_BILL": "25.01",
+          "US_STOCK": "34.33"
+        },
+        "cashAfter": {
+          "USD": "210.00",
+          "KRW": "0"
+        },
+        "excludedHoldings": []
+      }
+    },
+    {
+      "id": "10_non_whitelisted_excluded",
+      "description": "화이트리스트 밖 보유 종목은 총자산·비중 계산에서 제외",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": false,
+        "mode": "NORMAL",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.35,
+          "MID_TREASURY": 0.3,
+          "GOLD": 0.1,
+          "T_BILL": 0.25
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 200,
+          "T_BILL": 100,
+          "KR_STOCK_X": 50
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 62,
+          "GOLD": 10,
+          "T_BILL": 50,
+          "KR_STOCK_X": 100
+        },
+        "cash": {
+          "USD": 200,
+          "KRW": 0
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "NO_ACTION",
+        "reason": "WITHIN_BAND",
+        "lines": [],
+        "fx": null,
+        "sizePct": "0.00",
+        "scaleFactor": "1.0000",
+        "totalUsd": "20090.00",
+        "breachesBefore": [],
+        "breachesAfter": [],
+        "weightsAfterPct": {
+          "GOLD": "9.96",
+          "MID_TREASURY": "29.32",
+          "T_BILL": "24.89",
+          "US_STOCK": "34.84"
+        },
+        "cashAfter": {
+          "USD": "200.00",
+          "KRW": "0"
+        },
+        "excludedHoldings": [
+          "KR_STOCK_X"
+        ]
+      }
+    },
+    {
+      "id": "11_profile_shift_scaled",
+      "description": "36개월 → 12개월 프로필 전환. 필요한 매매가 총자산의 25%를 넘어 비율대로 축소",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": false,
+        "mode": "PROFILE_SHIFT",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.2,
+          "MID_TREASURY": 0.2,
+          "GOLD": 0.05,
+          "T_BILL": 0.55
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 200,
+          "T_BILL": 100
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 62,
+          "GOLD": 10,
+          "T_BILL": 50
+        },
+        "cash": {
+          "USD": 200,
+          "KRW": 0
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "FULL",
+        "reason": "PROFILE_SHIFT",
+        "lines": [
+          {
+            "side": "SELL",
+            "symbol": "US_STOCK",
+            "qty": 5,
+            "estAmountUsd": "1250.00"
+          },
+          {
+            "side": "SELL",
+            "symbol": "MID_TREASURY",
+            "qty": 8,
+            "estAmountUsd": "760.00"
+          },
+          {
+            "side": "SELL",
+            "symbol": "GOLD",
+            "qty": 2,
+            "estAmountUsd": "400.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "T_BILL",
+            "qty": 24,
+            "estAmountUsd": "2400.00"
+          }
+        ],
+        "fx": null,
+        "sizePct": "23.94",
+        "scaleFactor": "0.4228",
+        "totalUsd": "20090.00",
+        "breachesBefore": [
+          "GOLD",
+          "MID_TREASURY",
+          "T_BILL",
+          "US_STOCK"
+        ],
+        "breachesAfter": [
+          "GOLD",
+          "MID_TREASURY",
+          "T_BILL",
+          "US_STOCK"
+        ],
+        "weightsAfterPct": {
+          "GOLD": "7.96",
+          "MID_TREASURY": "25.54",
+          "T_BILL": "36.83",
+          "US_STOCK": "28.62"
+        },
+        "cashAfter": {
+          "USD": "210.00",
+          "KRW": "0"
+        },
+        "excludedHoldings": []
+      }
+    },
+    {
+      "id": "12_open_profile_satellite_paper",
+      "description": "기한 없는 프로필, 위성 모의 운용 중 → 위성 10%를 코어 비중대로 나눠 목표 계산",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": false,
+        "mode": "NORMAL",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.35,
+          "SATELLITE": 0.1,
+          "MID_TREASURY": 0.3,
+          "GOLD": 0.1,
+          "T_BILL": 0.15
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 200,
+          "T_BILL": 100
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 62,
+          "GOLD": 10,
+          "T_BILL": 50
+        },
+        "cash": {
+          "USD": 200,
+          "KRW": 0
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "FULL",
+        "reason": "BAND_BREACH",
+        "lines": [
+          {
+            "side": "SELL",
+            "symbol": "T_BILL",
+            "qty": 16,
+            "estAmountUsd": "1600.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "MID_TREASURY",
+            "qty": 8,
+            "estAmountUsd": "760.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "US_STOCK",
+            "qty": 2,
+            "estAmountUsd": "500.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "GOLD",
+            "qty": 1,
+            "estAmountUsd": "200.00"
+          }
+        ],
+        "fx": null,
+        "sizePct": "15.23",
+        "scaleFactor": "1.0000",
+        "totalUsd": "20090.00",
+        "breachesBefore": [
+          "T_BILL"
+        ],
+        "breachesAfter": [],
+        "weightsAfterPct": {
+          "GOLD": "10.95",
+          "MID_TREASURY": "33.10",
+          "T_BILL": "16.92",
+          "US_STOCK": "37.33"
+        },
+        "cashAfter": {
+          "USD": "340.00",
+          "KRW": "0"
+        },
+        "excludedHoldings": []
+      }
+    },
+    {
+      "id": "13_initial_build_from_krw",
+      "description": "초기 구축: 원화 2,800만원만 있음 → 이번 주에는 총자산의 25%만 매수",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": false,
+        "mode": "INITIAL_BUILD",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.35,
+          "MID_TREASURY": 0.3,
+          "GOLD": 0.1,
+          "T_BILL": 0.25
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 200,
+          "T_BILL": 100
+        },
+        "holdings": {},
+        "cash": {
+          "USD": 0,
+          "KRW": 28000000
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "FULL",
+        "reason": "INITIAL_BUILD",
+        "lines": [
+          {
+            "side": "BUY",
+            "symbol": "US_STOCK",
+            "qty": 7,
+            "estAmountUsd": "1750.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "MID_TREASURY",
+            "qty": 15,
+            "estAmountUsd": "1425.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "T_BILL",
+            "qty": 12,
+            "estAmountUsd": "1200.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "GOLD",
+            "qty": 2,
+            "estAmountUsd": "400.00"
+          }
+        ],
+        "fx": {
+          "usd": 4975,
+          "krwEst": 6965000
+        },
+        "sizePct": "23.88",
+        "scaleFactor": "0.2525",
+        "totalUsd": "20000.00",
+        "breachesBefore": [
+          "GOLD",
+          "MID_TREASURY",
+          "T_BILL",
+          "US_STOCK"
+        ],
+        "breachesAfter": [
+          "GOLD",
+          "MID_TREASURY",
+          "T_BILL",
+          "US_STOCK"
+        ],
+        "weightsAfterPct": {
+          "GOLD": "2.00",
+          "MID_TREASURY": "7.13",
+          "T_BILL": "6.00",
+          "US_STOCK": "8.75"
+        },
+        "cashAfter": {
+          "USD": "200.00",
+          "KRW": "21035000"
+        },
+        "excludedHoldings": []
+      }
+    },
+    {
+      "id": "14_missing_price_error",
+      "description": "목표 종목의 가격이 없음 → 주문안을 만들지 않고 오류",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": false,
+        "mode": "NORMAL",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.35,
+          "MID_TREASURY": 0.3,
+          "GOLD": 0.1,
+          "T_BILL": 0.25
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 200
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 62,
+          "GOLD": 10,
+          "T_BILL": 50
+        },
+        "cash": {
+          "USD": 200,
+          "KRW": 0
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "ERROR",
+        "error": "MISSING_PRICE",
+        "detail": "T_BILL"
+      }
+    },
+    {
+      "id": "15_held_asset_not_in_profile",
+      "description": "화이트리스트 안이지만 현재 프로필 목표가 0인 자산을 보유 → 전량 매도 대상",
+      "input": {
+        "asOf": "2026-11-03",
+        "isRebalanceDay": false,
+        "mode": "NORMAL",
+        "satellitePaper": true,
+        "targets": {
+          "US_STOCK": 0.4,
+          "MID_TREASURY": 0.35,
+          "T_BILL": 0.25
+        },
+        "whitelist": [
+          "US_STOCK",
+          "MID_TREASURY",
+          "GOLD",
+          "T_BILL"
+        ],
+        "prices": {
+          "US_STOCK": 250,
+          "MID_TREASURY": 95,
+          "GOLD": 200,
+          "T_BILL": 100
+        },
+        "holdings": {
+          "US_STOCK": 28,
+          "MID_TREASURY": 62,
+          "GOLD": 10,
+          "T_BILL": 50
+        },
+        "cash": {
+          "USD": 200,
+          "KRW": 0
+        },
+        "fxUsdKrw": 1400
+      },
+      "expected": {
+        "action": "FULL",
+        "reason": "BAND_BREACH",
+        "lines": [
+          {
+            "side": "SELL",
+            "symbol": "GOLD",
+            "qty": 10,
+            "estAmountUsd": "2000.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "MID_TREASURY",
+            "qty": 12,
+            "estAmountUsd": "1140.00"
+          },
+          {
+            "side": "BUY",
+            "symbol": "US_STOCK",
+            "qty": 3,
+            "estAmountUsd": "750.00"
+          }
+        ],
+        "fx": null,
+        "sizePct": "19.36",
+        "scaleFactor": "1.0000",
+        "totalUsd": "20090.00",
+        "breachesBefore": [
+          "GOLD",
+          "MID_TREASURY"
+        ],
+        "breachesAfter": [],
+        "weightsAfterPct": {
+          "GOLD": "0.00",
+          "MID_TREASURY": "34.99",
+          "T_BILL": "24.89",
+          "US_STOCK": "38.58"
+        },
+        "cashAfter": {
+          "USD": "310.00",
+          "KRW": "0"
+        },
+        "excludedHoldings": []
+      }
+    }
+  ]
+}

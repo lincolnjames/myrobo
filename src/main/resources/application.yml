@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: myrobo
+  datasource:
+    # Supabase → Connect → Session pooler 연결 문자열 (IPv4 지원). JDBC 형식으로:
+    # jdbc:postgresql://<pooler-host>:5432/postgres?sslmode=require
+    url: ${DB_URL}
+    username: ${DB_USER}          # Session pooler는 postgres.<project-ref> 형식
+    password: ${DB_PASSWORD}
+    hikari:
+      schema: robo                # 모든 쿼리가 robo 스키마를 기본으로 사용
+      maximum-pool-size: 3        # 1인용 배치라 작게. 무료 플랜 연결 수 절약
+  flyway:
+    schemas: robo
+    default-schema: robo
+
+robo:
+  config-path: ${ROBO_CONFIG_PATH:config/robo-config.yml}
+  config:
+    require-approval: true        # 승인 안 된 설정 파일이면 시작 거부
+
+server:
+  port: 8080
+  address: 127.0.0.1              # 입력 화면은 외부에 공개하지 않는다 (원격 접속은 VPN으로)

@@ -1,0 +1,128 @@
+# 개인용 로보어드바이저 규칙 설정 (초안)
+#
+# 이 파일이 "규칙"의 유일한 원본이다. 코드에는 숫자를 하드코딩하지 않는다.
+# - git으로 버전 관리하고, 바꿀 때는 커밋 메시지에 이유를 적는다.
+# - 앱은 시작할 때 이 파일의 해시를 계산해 DB의 승인 기록(rule_change)과 비교하고,
+#   승인되지 않은 해시면 실행을 거부한다. (승인 절차는 문서 참고)
+# - 비밀값(API 키, DB 비밀번호)은 절대 여기에 넣지 않는다. 환경변수로만.
+
+version: 2026.10.1            # 규칙 버전. 바꿀 때마다 올린다 (연.월.순번)
+change:
+  kind: POLICY                # BUGFIX | STRICTER | LOOSER | POLICY  (변경 종류에 따라 승인 조건이 다름)
+  reason: "최초 설정"
+
+# ── 투자 목표 ──────────────────────────────────────────────
+goal:
+  horizon: OPEN               # 1M | 3M | 6M | 12M | 36M | OPEN(기한 없음)
+  startDate: 2026-11-02
+  maxDrawdownPct: 25          # 원화 기준 최대 낙폭 한도
+  baseCurrency: KRW
+
+# ── 기간별 자산군 비중 (합계 100) ──────────────────────────
+# SATELLITE는 위성. 모의 운용 중에는 코어 비중대로 나눠 담는다.
+profiles:
+  1M:   { T_BILL: 100 }
+  3M:   { T_BILL: 100 }
+  6M:   { US_STOCK: 10, T_BILL: 90 }
+  12M:  { US_STOCK: 20, MID_TREASURY: 20, GOLD: 5,  T_BILL: 55 }
+  36M:  { US_STOCK: 35, MID_TREASURY: 30, GOLD: 10, T_BILL: 25 }
+  OPEN: { US_STOCK: 35, SATELLITE: 10, MID_TREASURY: 30, GOLD: 10, T_BILL: 15 }
+
+# 자산군 → 실제 종목. 종목을 바꿔도 비중 규칙은 그대로다.
+# 선택 기준: ① 코어 계좌 증권사에서 거래 가능 → ② 운용보수 최저 → ③ 같으면 운용 규모(유동성) 최대
+instruments:
+  US_STOCK:     { symbol: VTI,  candidates: [VTI, ITOT, SCHB] }
+  MID_TREASURY: { symbol: SCHR, candidates: [VGIT, SCHR, IEF] }   # VGIT 삼성증권 미지원
+  GOLD:         { symbol: GLDM, candidates: [GLDM, IAU, SGOL, GLD] }
+  T_BILL:       { symbol: BIL,  candidates: [SGOV, BIL, SHV] }    # SGOV 삼성증권 미지원
+
+# 증권사별 거래 가능 여부 (앱에서 직접 확인한 결과와 날짜)
+# 앱은 시작 시 instruments의 종목이 코어 계좌 증권사의 tradable 목록에 있는지 검사하고, 없으면 실행을 거부한다.
+brokerAvailability:
+  SAMSUNG:
+    checkedAt: 2026-10-26
+    tradable:   [VTI, GLDM, SCHR, IEF, BIL, SHV]
+    unavailable: [VGIT, SGOV]
+
+accounts:
+  core:      { broker: SAMSUNG, role: CORE }       # 1단계는 이 계좌만 운용
+  satellite: { broker: SHINHAN, role: SATELLITE, active: false }
+
+# ── 코어 리밸런싱 (알고리즘 명세와 1:1) ────────────────────
+rebalance:
+  band: { absPct: 5, relPct: 25 }     # 5/25 규칙
+  restoreTo: TARGET                   # 목표 비중까지 되돌림
+  cashBufferPct: 1
+  minOrderUsd: 50
+  maxPlanPct: 25                      # 초기 구축·프로필 전환 1회 상한
+  initialBuildWeeks: 4
+
+# ── 일정 (모두 America/New_York 기준 거래일) ──────────────
+schedule:
+  batchTimeKst: "07:00"
+  coreCashDeploy: FIRST_TRADING_DAY_OF_MONTH
+  satelliteReview: FIRST_TRADING_DAY_OF_WEEK
+  stressTest: FIRST_TRADING_DAY_OF_MONTH
+  dbBackup: SUNDAY
+  quarterlyReview: WEEKEND_AFTER_QUARTER_END
+  heartbeatDeadlineKst: "07:30"
+
+# ── 안전 검증 규칙 ────────────────────────────────────────
+guard:
+  equityCapPct: 45                    # 코어 주식 + 위성 합계 상한 (25 ÷ 55)
+  dataFreshness: { priceTradingDays: 2, holdingsDays: 7 }
+  pendingPlan: { blockNewPlan: true, expireTradingDays: 3 }
+  drawdownAlerts:
+    - { atPct: 15, action: ALERT }
+    - { atPct: 20, action: STOP_SATELLITE_BUYS }
+  excluded: [LEVERAGED, INVERSE, OTC]
+
+satellite:
+  mode: PAPER                         # PAPER | LIVE
+  capPct: 10
+  perStockCapPct: 3
+  sectorCapPct: 40
+  excludeCoreTopHoldings: 10
+  trendFilter: { smaDays: 200, bufferPct: 3, evaluate: WEEKLY }
+  stopLoss: { atrDays: 20, atrMultiple: 3 }
+  promotion: { minPaperMonths: 12, metric: SHARPE, vs: [CORE_US_STOCK, MOMENTUM_ONLY] }
+  demotion: { consecutiveQuarterlyLosses: 2 }
+
+# ── 스트레스 테스트 (하나라도 maxDrawdownPct 초과 시 거부) ─
+stress:
+  scenarios:
+    - { id: DOTCOM,      method: REPLAY, from: 2000-03-24, to: 2002-10-09 }
+    - { id: GFC,         method: REPLAY, from: 2007-10-09, to: 2009-03-09 }
+    - { id: COVID,       method: REPLAY, from: 2020-02-19, to: 2020-03-23 }
+    - { id: RATES_2022,  method: REPLAY, from: 2022-01-03, to: 2022-10-12 }
+    - { id: STAGFLATION, method: SHOCK, shocksPct: { US_STOCK: -48, MID_TREASURY: -15, GOLD: 0, T_BILL: 0 } }
+    - { id: KRW_RALLY,   method: SHOCK, base: GFC, fxPct: -15 }   # 원화 15% 강세
+    - { id: SAT_COLLAPSE, method: SHOCK, base: GFC, shocksPct: { SATELLITE: -70 } }
+    - { id: ALL_DOWN,    method: SHOCK, shocksPct: { US_STOCK: -35, MID_TREASURY: -15, GOLD: -15, T_BILL: 0 } }
+
+# ── 규칙 변경 절차 ────────────────────────────────────────
+changePolicy:
+  LOOSER: { when: QUARTERLY_REVIEW, coolingDays: 7, requires: [BACKTEST, STRESS] }
+  POLICY: { when: ANNUAL_REVIEW,    coolingDays: 7, requires: [BACKTEST, STRESS, COMPARISON_REPORT] }
+  STRICTER: { when: ANYTIME, requires: [] }
+  BUGFIX:   { when: ANYTIME, requires: [TESTS] }
+  freezeAfterDrawdownAlertDays: 30    # 낙폭 경보 후 30일간 LOOSER 제안 불가
+
+# ── 데이터 소스 (키는 환경변수 이름만 적는다) ───────────────
+# 2026-10-26 확인: Finnhub 무료는 일봉·분할·배당 403 → 일봉은 Tiingo
+dataSources:
+  dailyPrices:
+    provider: TIINGO
+    keyEnv: TIINGO_KEY
+    rateLimit: { perHour: 45, perDay: 900 }        # 무료 한도(시간당 50, 하루 1,000)보다 여유 있게
+    daily: [CORE, HOLDINGS]                         # 매일 07:00
+    weekly: [WATCHLIST]                             # 위성 판정 전, 시간당 한도 안에서 나눠 수집
+  corporateActions: { provider: TIINGO }            # 2026-10-26 확인: SCHB 3:1 분할이 splitFactor 3.0으로 나옴
+  news:             { provider: FINNHUB, keyEnv: FINNHUB_KEY }
+  marketHolidays:   { provider: FINNHUB, keyEnv: FINNHUB_KEY }
+  earningsCalendar: { provider: FINNHUB, keyEnv: FINNHUB_KEY }
+  filings:          { provider: SEC_EDGAR, userAgentEnv: SEC_USER_AGENT }
+  fx:
+    primary:  { provider: KOREAEXIM, keyEnv: KOREAEXIM_KEY, rate: DEAL_BASE }  # 매매기준율, 영업일 11시경 고시
+    fallback: { provider: FRANKFURTER }                                       # 키 불필요, 수출입은행 실패 시
+    maxAgeBusinessDays: 3                                                     # 이보다 오래되면 주문안 중단

@@ -1,0 +1,23 @@
+# 비밀값: 절대 커밋하지 않는다
+.env
+*.env
+!.env.example
+
+# 빌드 산출물
+build/
+out/
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 파이썬
+__pycache__/
+*.pyc
+
+# 로그·백업
+*.log
+backups/
