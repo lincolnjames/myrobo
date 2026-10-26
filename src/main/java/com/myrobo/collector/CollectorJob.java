@@ -6,14 +6,13 @@ import com.myrobo.ops.JobRuns;
 import com.myrobo.ops.JobRuns.Status;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.TreeSet;
 
 /**
- * 매일 08:00(KST) 수집. 겨울(EST)에도 미국 장 마감 + 일봉 반영(17:45 ET) 이후가 되도록 08:00으로 잡았다.
+ * 수집 한 번 실행. 08:00(KST)은 겨울(EST)에도 미국 장 마감 + 일봉 반영(17:45 ET) 이후가 되도록 잡은 시각이다.
  * 실행 결과는 job_run에 남는다.
  */
 @Component
@@ -23,27 +22,16 @@ public class CollectorJob {
     private static final Logger log = LoggerFactory.getLogger(CollectorJob.class);
 
     private final CollectorService service;
-    private final CollectorProperties props;
     private final LoadedConfig config;
     private final JobRuns jobRuns;
 
-    public CollectorJob(CollectorService service, CollectorProperties props, LoadedConfig config, JobRuns jobRuns) {
+    public CollectorJob(CollectorService service, LoadedConfig config, JobRuns jobRuns) {
         this.service = service;
-        this.props = props;
         this.config = config;
         this.jobRuns = jobRuns;
     }
 
-    @Scheduled(cron = "${robo.collector.cron}", zone = "Asia/Seoul")
-    public void scheduled() {
-        if (!props.enabled()) {
-            log.info("수집이 꺼져 있음 (robo.collector.enabled=false)");
-            return;
-        }
-        run();
-    }
-
-    /** 예약 실행과 수동 실행이 겹치지 않게 한 번에 하나만. */
+    /** 예약은 ops.DailyJob이 한다 (수집 → 주문안 → 알림). 여기는 수집 한 번만. 한 번에 하나만 돈다. */
     public synchronized CollectResult run() {
         long id = jobRuns.start(JOB);
         try {

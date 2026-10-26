@@ -10,7 +10,7 @@
 ## 명령
 
 ```powershell
-.\gradlew.bat test      # DB·네트워크 없이 도는 테스트 전부 (현재 87개 = 단위 72 + 골든 15)
+.\gradlew.bat test      # DB·네트워크 없이 도는 테스트 전부 (현재 108개 = 단위 93 + 골든 15)
 .\gradlew.bat bootRun   # 환경변수 DB_URL, DB_USER, DB_PASSWORD, TIINGO_KEY, FINNHUB_KEY 필요 (KOREAEXIM_KEY는 선택)
 ```
 
@@ -30,7 +30,7 @@
 | `collector` | Tiingo 일봉, Finnhub 휴장일, 환율(수출입은행→Frankfurter), `MarketCalendar` | 수집 로직은 없음 |
 | `common.config` | `robo-config.yml` 로딩·검증·해시 승인 | 일부 |
 | `web` | REST 컨트롤러, 로컬 전용 보호 필터 | 있음 |
-| `ops` | 배치 기록 job_run, 수동 실행 | 있음 |
+| `ops` | 매일 08:00 작업 `DailyJob`(수집 → 주문안 → 알림), 텔레그램 알림 `Notifier`, 배치 기록 job_run, 수동 실행 | 있음 |
 
 ## 지켜야 할 규칙
 
@@ -79,7 +79,16 @@
 4. 일부만 체결돼도 실제 체결분만 반영. 저장 뒤 화면에서 증권사 앱 잔고와 맞는지 확인하라고 안내
 5. 테스트: 전량 체결, 일부 체결, 미체결, 계획보다 많이 입력(거부), SENT가 아닌 주문안(거부), 체결 뒤 바로 다음 주문안을 만들 수 있는지
 
-그다음: 텔레그램 알림, 08:00 수집 뒤 주문안 자동 생성(`ops`), 외부 감시용 완료 신호, 주간 백업, 일별 평가액과 낙폭 경보.
+## 자동 생성·알림 (구현됨, 앱 기동·텔레그램 확인 전)
+
+- `DailyJob`이 08:00 KST에 수집 → (수집 오류 없을 때만) `PlanService.create()` → 알림. 예약은 여기 하나뿐(`CollectorJob`은 수집 한 번만). 주문은 여전히 사람이 한다
+- 수집에 오류가 있으면 그날 주문안을 만들지 않고 알림. 경고만 있으면 계속. `robo.daily.auto-plan=false`면 수집만
+- 알림: SENT, REJECTED, 수집·단계 오류, 미완료 주문안 리마인드, 데이터 검증에 걸린 "주문 없음". 조용한 경우: 정상 "주문 없음", 오늘 이미 있음. 총자산 같은 합계는 외부로 보내지 않는다
+- 환경변수 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` 둘 다 있어야 켜짐. 토큰은 URL에 들어가므로 로그·예외에 URL을 찍지 않는다
+- 수동: `POST /internal/jobs/daily`(전체 실행, 알림도 실제 전송), `POST /internal/jobs/notify-test`(테스트 알림). 둘 다 `X-Robo-Request: 1` 필요
+- 한계: PC가 꺼져 08:00을 놓친 날은 따라잡지 않는다. 알림 전송 실패는 로그에만 남는다 → 외부 감시용 완료 신호 작업에서 다룬다
+
+그다음: 외부 감시용 완료 신호(놓친 날 따라잡기 포함 검토), 주간 백업, 일별 평가액과 낙폭 경보.
 
 ## 커밋
 

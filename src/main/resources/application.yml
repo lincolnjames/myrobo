@@ -18,6 +18,12 @@ robo:
   config-path: ${ROBO_CONFIG_PATH:config/robo-config.yml}
   config:
     require-approval: true        # 승인 안 된 설정 파일이면 시작 거부
+  daily:
+    auto-plan: true               # 수집이 오류 없이 끝나면 주문안까지 만든다. false면 수집만 (주문은 늘 사람이 한다)
+  notify:
+    telegram:
+      token: ${TELEGRAM_BOT_TOKEN:}     # 둘 다 있어야 알림이 켜진다. 비밀값이라 환경변수로만
+      chat-id: ${TELEGRAM_CHAT_ID:}
   collector:
     enabled: true
     cron: "0 0 8 * * *"           # 매일 08:00 KST. 겨울에도 미국 일봉 반영(17:45 ET) 이후
