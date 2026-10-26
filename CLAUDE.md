@@ -10,7 +10,7 @@
 ## 명령
 
 ```powershell
-.\gradlew.bat test      # DB·네트워크 없이 도는 테스트 전부 (현재 68개 = 단위 53 + 골든 15)
+.\gradlew.bat test      # DB·네트워크 없이 도는 테스트 전부 (현재 87개 = 단위 72 + 골든 15)
 .\gradlew.bat bootRun   # 환경변수 DB_URL, DB_USER, DB_PASSWORD, TIINGO_KEY, FINNHUB_KEY 필요 (KOREAEXIM_KEY는 선택)
 ```
 
@@ -64,7 +64,13 @@
 - 목표 시작일 `goal.startDate` = **2026-11-02**. 그 전에는 주문안이 발송되지 않는다.
   현재 잔고(BIL 위주)는 필요한 매매가 163%라 11-02(월, 주·월 첫 거래일)부터 매주 25% 이내로 나눠 진행된다
 
-## 다음 작업: 체결 입력 (11-02 첫 주문 전에 필요)
+## 체결 입력 (구현됨, 실제 Postgres 확인 전)
+
+`POST /api/plans/{id}/executions` (`ExecutionService`, 순수 계산은 `ExecutionInput`). 아래 명세대로 구현했고 단위 테스트는 통과.
+**새 SQL(`execution`·`cash_ledger` insert, `clock_timestamp()` 잔고 저장)은 아직 실제 DB에서 안 돌려 봄.** 11-02 전에 한 번 확인할 것.
+추가로 정한 것: 주문안 생성 뒤에 직접 입력한 잔고가 있으면 이중 반영 위험이라 거부(409), 만료된 주문안은 받지 않음(수동 잔고 입력으로 처리), 미체결 줄은 `execution`에 저장하지 않음.
+
+명세 (원문):
 
 1. 발송(SENT) 주문안의 줄마다 실제 체결 수량·가격·수수료 입력 → `execution` 테이블. 수량은 0(미체결) 이상, 계획 수량 이하
 2. 실제 환전(달러 받은 금액, 원화 쓴 금액) 입력 → `cash_ledger`(type FX). 예상 대비 실제 환율 차이를 기록해 1% 버퍼가 충분한지 본다

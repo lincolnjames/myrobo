@@ -236,7 +236,81 @@
       box.append(linesTable(p));
     }
     box.append(checksList(p.checks));
+    if (p.status === 'SENT') box.append(execForm(p));
     return box;
+  }
+
+  // ── 체결 입력 ──
+
+  /** 증권사 앱에서 실제로 체결된 결과. 기본값은 계획 그대로이니 다르게 체결된 줄만 고친다. */
+  function execForm(p) {
+    const input = (field, value, step) => el('input', { 'data-field': field, value: value, inputmode: 'decimal', type: 'text', 'data-step': step || '' });
+    const rows = p.items.map((it) => el('tr', { 'data-item': it.id },
+      el('td', {}, it.side === 'SELL' ? '매도' : '매수'), el('td', {}, el('strong', {}, it.symbol)),
+      el('td', {}, krw.format(it.qty) + '주'),
+      el('td', {}, input('qty', String(it.qty))), el('td', {}, input('price', Number(it.estPrice).toFixed(2))),
+      el('td', {}, input('fee', '0'))));
+    const fxRow = el('div', { class: 'grid' },
+      el('div', {}, el('label', {}, '환전해서 받은 달러 (환전했을 때만)'), el('input', { id: 'fxUsd', inputmode: 'decimal', value: '' })),
+      el('div', {}, el('label', {}, '환전에 쓴 원화'), el('input', { id: 'fxKrw', inputmode: 'decimal', value: '' })));
+    const msg = el('div', { id: 'execMessage' });
+    const btn = el('button', { type: 'submit', class: 'primary' }, '체결 결과 저장');
+    const form = el('form', { id: 'execForm' },
+      el('h2', { style: 'margin-top:18px' }, '체결 입력'),
+      el('p', { class: 'meta' }, '증권사 앱의 체결 내역 그대로 입력하세요. 미체결이면 수량 0. 저장하면 주문안이 완료되고 잔고가 갱신돼요.'
+        + (p.fxUsd != null ? ' 이 주문안의 환전 예상: ' + fmtUsd(p.fxUsd) + ' (약 ' + fmtKrw(p.fxKrwEst) + ')' : '')),
+      el('div', { class: 'table-wrap' }, el('table', {},
+        el('thead', {}, el('tr', {}, ['구분', '종목', '계획', '체결 수량', '체결 가격($)', '수수료($)'].map((h) => el('th', {}, h)))),
+        el('tbody', {}, rows))),
+      fxRow, el('div', { class: 'row-actions' }, btn), msg);
+    form.addEventListener('submit', (ev) => { ev.preventDefault(); saveExecution(p.id, form, btn, msg); });
+    return form;
+  }
+
+  function collectExecution(form) {
+    const errors = [];
+    const parse = (label, raw, integer) => {
+      const s = clean(raw);
+      if (s === '') return null;
+      if (integer ? !/^\d+$/.test(s) : !/^\d+(\.\d+)?$/.test(s)) { errors.push(label + ': 숫자가 아님 (' + raw + ')'); return undefined; }
+      return Number(s);
+    };
+    const fills = [];
+    form.querySelectorAll('tr[data-item]').forEach((tr) => {
+      const get = (f) => tr.querySelector('[data-field="' + f + '"]').value;
+      const name = tr.children[1].textContent;
+      const qty = parse(name + ' 체결 수량', get('qty'), true);
+      fills.push({ itemId: Number(tr.getAttribute('data-item')), qty: qty == null ? null : qty,
+        price: parse(name + ' 체결 가격', get('price'), false), fee: parse(name + ' 수수료', get('fee'), false) ?? 0 });
+    });
+    const fxUsd = parse('환전 달러', form.querySelector('#fxUsd').value, false);
+    const fxKrw = parse('환전 원화', form.querySelector('#fxKrw').value, false);
+    return { body: { fills, fx: fxUsd == null && fxKrw == null ? null : { usd: fxUsd ?? null, krw: fxKrw ?? null } }, errors };
+  }
+
+  async function saveExecution(planId, form, btn, msg) {
+    const { body, errors } = collectExecution(form);
+    const show = (kind, title, items) => {
+      const box = el('div', { class: 'notice ' + kind }, title);
+      if (items && items.length) box.append(el('ul', { class: 'errors' }, items.map((t) => el('li', {}, t))));
+      msg.replaceChildren(box);
+    };
+    if (errors.length) { show('bad', '입력을 확인해 주세요', errors); return; }
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/plans/' + planId + '/executions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Robo-Request': '1' }, body: JSON.stringify(body) });
+      const r = await res.json().catch(() => ({}));
+      if (!res.ok) { show('bad', r.message || '저장 실패 (HTTP ' + res.status + ')', r.errors); return; }
+      render(r.portfolio);
+      await loadPlans();
+      $('planMessage').replaceChildren(el('div', { class: 'notice ok' }, r.message));
+      $('planChecks').replaceChildren(el('div'));
+    } catch (e) {
+      show('bad', '서버에 연결할 수 없어요: ' + e.message);
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   function renderPlans(o) {

@@ -52,6 +52,18 @@ public class HoldingsRepository {
     static final String UPSERT_CASH = """
             insert into cash_balance (account_id, as_of, currency, amount) values (:account, :asOf, :currency, :amount)
             on conflict (account_id, as_of, currency) do update set amount = excluded.amount, entered_at = now()""";
+    /**
+     * 체결로 만든 스냅샷용. now()는 트랜잭션 시작 시각이라 같은 트랜잭션에서 주문안을 닫은 시각(updated_at)과
+     * 같아지므로, 저장하는 순간의 시각(clock_timestamp)을 써서 "닫힌 뒤에 입력한 잔고"로 인정되게 한다.
+     */
+    static final String UPSERT_CASH_NOW = """
+            insert into cash_balance (account_id, as_of, currency, amount, entered_at)
+            values (:account, :asOf, :currency, :amount, clock_timestamp())
+            on conflict (account_id, as_of, currency) do update
+            set amount = excluded.amount, entered_at = clock_timestamp()""";
+    static final String INSERT_LEDGER = """
+            insert into cash_ledger (account_id, date, type, currency, amount, memo)
+            values (:account, :date, :type, :currency, :amount, :memo)""";
     /** 그 기준일 잔고를 마지막으로 저장한 시각. 저장할 때마다 현금 두 줄이 함께 갱신된다. */
     static final String ENTERED_AT =
             "select max(entered_at) from cash_balance where account_id = :account and as_of = :asOf";
@@ -146,6 +158,28 @@ public class HoldingsRepository {
         }
         upsertCash(account, s.asOf(), "KRW", s.cashKrw());
         upsertCash(account, s.asOf(), "USD", s.cashUsd());
+    }
+
+    /** {@link #replaceSnapshot}과 같지만 저장 시각을 clock_timestamp()로 남긴다 (체결 입력용). */
+    public void replaceSnapshotAfterClose(long account, SnapshotInput.Clean s) {
+        jdbc.sql(DELETE_POSITIONS).param("account", account).param("asOf", s.asOf()).update();
+        for (SnapshotInput.Line l : s.holdings()) {
+            jdbc.sql(INSERT_POSITION).param("account", account).param("asOf", s.asOf())
+                    .param("symbol", l.symbol()).param("qty", l.qty()).param("avgPrice", l.avgPrice()).update();
+        }
+        upsertCashNow(account, s.asOf(), "KRW", s.cashKrw());
+        upsertCashNow(account, s.asOf(), "USD", s.cashUsd());
+    }
+
+    public void insertLedger(long account, LocalDate date, String type, String currency, BigDecimal amount,
+                             String memo) {
+        jdbc.sql(INSERT_LEDGER).param("account", account).param("date", date).param("type", type)
+                .param("currency", currency).param("amount", amount).param("memo", memo).update();
+    }
+
+    private void upsertCashNow(long account, LocalDate asOf, String currency, BigDecimal amount) {
+        jdbc.sql(UPSERT_CASH_NOW).param("account", account).param("asOf", asOf)
+                .param("currency", currency).param("amount", amount).update();
     }
 
     private void upsertCash(long account, LocalDate asOf, String currency, BigDecimal amount) {

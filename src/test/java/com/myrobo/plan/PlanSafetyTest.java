@@ -166,6 +166,16 @@ class PlanSafetyTest {
     }
 
     @Test
+    void balanceMadeFromExecutionsLetsTheNextPlanThrough() {
+        Ctx c = splitDayPlan();
+        c.lastClosed = Instant.parse("2026-11-02T01:00:00Z");   // 체결 입력으로 DONE 처리된 시각
+        c.enteredAt = c.lastClosed;                             // now()로 저장했다면 같은 시각이라 막힘
+        assertEquals(Set.of(Rule.HOLDINGS_AFTER_LAST_PLAN), failed(c.run()));
+        c.enteredAt = c.lastClosed.plusNanos(1_000);            // clock_timestamp()는 마이크로초라도 더 늦음
+        assertTrue(c.run().passed());
+    }
+
+    @Test
     void pricesMustBeFromTheLastTwoSessions() {
         Ctx c = splitDayPlan();
         c.lag = Map.of("VTI", 1, "SCHR", 0, "GLDM", 0, "BIL", 1);

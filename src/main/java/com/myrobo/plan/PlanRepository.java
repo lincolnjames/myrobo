@@ -51,6 +51,9 @@ public class PlanRepository {
             values (:plan, :side, :symbol, :qty, :price, :amount, 'USD')""";
     static final String INSERT_CHECK = """
             insert into guard_result (plan_id, rule, passed, detail) values (:plan, :rule, :passed, :detail)""";
+    static final String INSERT_EXECUTION = """
+            insert into execution (plan_item_id, executed_at, qty, price, fee, currency)
+            values (:item, :at, :qty, :price, :fee, 'USD')""";
     static final String SET_STATUS = """
             update order_plan set status = :to, updated_at = now() where id = :id and status = :from""";
     static final String SELECT_PLANS = """
@@ -61,7 +64,7 @@ public class PlanRepository {
             + " where account_id = :account order by created_at desc, id desc limit :limit";
     static final String BY_ID = SELECT_PLANS + " where id = :id";
     static final String ITEMS = """
-            select plan_id, side, symbol, qty, est_price, est_amount from order_plan_item
+            select id, plan_id, side, symbol, qty, est_price, est_amount from order_plan_item
             where plan_id in (:ids) order by plan_id, id""";
     static final String CHECKS = "select plan_id, rule, passed, detail from guard_result where plan_id in (:ids)";
 
@@ -132,6 +135,12 @@ public class PlanRepository {
         }
     }
 
+    /** 실제 체결 한 줄 저장. 미체결(0주)은 저장하지 않는다 (execution.qty > 0). */
+    public void insertExecution(ExecutionInput.Executed e, OffsetDateTime at) {
+        jdbc.sql(INSERT_EXECUTION).param("item", e.itemId()).param("at", at).param("qty", e.qty())
+                .param("price", e.price()).param("fee", e.fee()).update();
+    }
+
     /** from 상태일 때만 to로 바꾼다. 다른 상태였으면 예외 (트랜잭션 전체가 되돌려진다). */
     public void transition(long id, String from, String to) {
         int n = jdbc.sql(SET_STATUS).param("id", id).param("from", from).param("to", to).update();
@@ -172,7 +181,7 @@ public class PlanRepository {
         Map<Long, List<ItemView>> items = new LinkedHashMap<>();
         jdbc.sql(ITEMS).param("ids", ids).query((rs, n) -> {
             items.computeIfAbsent(rs.getLong("plan_id"), k -> new ArrayList<>()).add(new ItemView(
-                    rs.getString("side"), rs.getString("symbol"), rs.getLong("qty"),
+                    rs.getLong("id"), rs.getString("side"), rs.getString("symbol"), rs.getLong("qty"),
                     rs.getBigDecimal("est_price"), rs.getBigDecimal("est_amount")));
             return 1;
         }).list();
