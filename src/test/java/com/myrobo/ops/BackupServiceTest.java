@@ -77,6 +77,29 @@ class BackupServiceTest {
     }
 
     @Test
+    void aDatabaseWithNoHoldingsAtAllIsNotBackedUp(@TempDir Path dir) throws IOException {
+        // 복구하려고 새 DB로 앱을 켠 직후: 기준 데이터만 있고 잔고가 없다. 같은 날 좋은 백업이 이미 있다
+        new BackupService(populated().table("holding_snapshot").table("cash_balance").add("cash_balance", "1,KRW"),
+                dir, SUNDAY, 8).run();
+        var empty = FakeDb.sample().add("goal", "1,OPEN").table("holding_snapshot").table("cash_balance");
+
+        var e = assertThrows(IllegalStateException.class, () -> new BackupService(empty, dir, SUNDAY, 1).run());
+
+        assertTrue(e.getMessage().contains("잔고 기록이 하나도 없는"), e.getMessage());
+        try (ZipFile zip = new ZipFile(dir.resolve("myrobo-2026-11-01.zip").toFile())) {
+            assertEquals(1, BackupArchive.verify(zip).tables().stream()
+                    .filter(t -> t.table().equals("cash_balance")).findFirst().orElseThrow().rows()); // 덮어쓰지 않음
+        }
+    }
+
+    @Test
+    void oneHoldingsRowIsEnoughToBackUp(@TempDir Path dir) {
+        var db = FakeDb.sample().table("holding_snapshot").table("cash_balance").add("holding_snapshot", "1,VTI,10");
+
+        assertEquals(1, new BackupService(db, dir, SUNDAY, 8).run().rows());
+    }
+
+    @Test
     void aFailedRunKeepsTheEarlierBackups(@TempDir Path dir) throws IOException {
         new BackupService(populated(), dir, Clock.fixed(Instant.parse("2026-10-25T00:00:00Z"), ZoneOffset.UTC), 8).run();
         var bad = populated();

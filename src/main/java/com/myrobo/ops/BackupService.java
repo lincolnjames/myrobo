@@ -18,6 +18,8 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
@@ -34,6 +36,11 @@ import java.util.zip.ZipOutputStream;
 public final class BackupService {
 
     static final String FILE_PATTERN = "myrobo-\\d{4}-\\d{2}-\\d{2}\\.zip";
+    /**
+     * 직접 입력한 잔고 테이블. 둘 다 있는데 모두 비어 있으면 백업하지 않는다: 복구하려고 새 DB로 앱을 켰을 때
+     * 빈 DB의 백업이 같은 날 좋은 백업을 덮어쓰거나 오래된 좋은 백업을 밀어내지 않게.
+     */
+    static final List<String> HOLDINGS_TABLES = List.of("holding_snapshot", "cash_balance");
     private static final Pattern FILE = Pattern.compile(FILE_PATTERN);
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final Logger log = LoggerFactory.getLogger(BackupService.class);
@@ -89,7 +96,13 @@ public final class BackupService {
     }
 
     private BackupManifest write(BackupSource.Snapshot s, Path part, ZonedDateTime now) throws IOException {
-        List<String> order = TableOrder.parentsFirst(s.tables());
+        Map<String, Set<String>> tables = s.tables();
+        if (tables.keySet().containsAll(HOLDINGS_TABLES)
+                && HOLDINGS_TABLES.stream().allMatch(t -> s.count(t) == 0)) {
+            throw new IllegalStateException("잔고 기록이 하나도 없는 DB라 백업하지 않음 (빈 DB의 백업이 기존 백업을 덮어쓰지 않도록)."
+                    + " 복구 직후라면 정상이고, 복구를 마치면 다음 백업부터 다시 만든다");
+        }
+        List<String> order = TableOrder.parentsFirst(tables);
         List<BackupManifest.Entry> entries = new ArrayList<>();
         try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(part))) {
             for (String table : order) {

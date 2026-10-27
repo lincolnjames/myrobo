@@ -95,15 +95,17 @@
 - 따라잡기: 기동 60초 뒤 오늘(KST) 08:10 이후인데 오늘 끝난 `plan-daily` 기록이 없으면 `run()`을 한 번 돌린다(`robo.daily.catch-up`, `catch-up-after`, `catch-up-delay-seconds`). 수집·auto-plan이 꺼져 있으면 안 한다. 수집이 예외로 중단된 날은 기록이 없어 다음 기동 때 다시 시도된다
 - 사용자 확인: 앱 기동 로그에 "완료 신호 켜짐", `POST /internal/jobs/daily` 뒤 healthchecks.io 화면에 핑이 찍히는지, 같은 날 다시 기동해도 따라잡기가 또 돌지 않는지(`tools/`의 SQL로 `job_run` 확인)
 
-## 주간 백업·복구 (백업은 실제 DB에서 확인함, 복구는 새 프로젝트에서 시험하기 전)
+## 주간 백업·복구 (둘 다 실제 DB에서 확인함. 복구는 2026-10-28 새 Supabase 프로젝트에서 시험: 16개 테이블 해시 일치, id 번호 이어짐)
 
 - 매주 일요일 09:00 KST(`robo.backup.cron`), 앱을 켰을 때 최근 8일 안에 성공한 백업이 없으면 60초 뒤 한 번 따라잡는다. 결과는 `job_run`의 `backup-weekly`, 실패하면 텔레그램(성공은 조용), 별도 체크 `HEALTHCHECK_BACKUP_URL`(주기 7일)로 완료 신호
 - 방식: `robo` 스키마의 모든 테이블(시세·환율 포함, 새 테이블은 자동 포함)을 PostgreSQL `COPY`로 CSV로 내보내 `myrobo-YYYY-MM-DD.zip` 하나로 묶는다. pg_dump 불필요. 한 스냅샷(REPEATABLE READ)에서 읽고, 테이블마다 내보낸 행 수 = `count(*)` 확인, 다 쓴 뒤 zip을 다시 열어 해시 검증하고서야 제 이름으로 옮긴다. 실패하면 `.part`를 지우고 기존 백업은 건드리지 않는다. 성공한 뒤에만 최근 8개(`robo.backup.keep`) 밖을 지운다
 - 위치: `robo.backup.dir` (환경변수 `BACKUP_DIR`, 기본 `~/myrobo-backups`). 잔고·체결 내역이 들어 있어 클라우드 동기화 폴더로 지정하면 노출 범위를 알고 선택해야 한다. zip 암호화는 아직 없음
 - 수동: `POST /internal/jobs/backup`
 - 복구(재해용): `POST /internal/jobs/restore?file=myrobo-YYYY-MM-DD.zip&confirm=RESTORE`. 새 Supabase 프로젝트에서 앱을 한 번 켜 스키마(Flyway)를 만든 뒤 실행한다. zip 해시를 먼저 검증하고, 마이그레이션 버전·테이블 구성이 같아야 하며, 앱이 시작 때 채우는 기준 데이터(goal·account·instrument) 외에 데이터가 하나라도 있으면 거부한다. 한 트랜잭션이라 실패하면 아무것도 안 바뀐다. 끝나면 id 자동 번호를 이어 붙인다
-- 새 테이블을 추가하는 마이그레이션을 만들면 백업에는 자동으로 따라온다. 앱이 시작할 때 설정에서 채우는 테이블이 늘면 `BackupRestore.BOOTSTRAPPED`에도 추가해야 한다
-- 사용자 확인 절차: `/internal/jobs/backup` 실행 → 폴더의 zip 열어 보기(`manifest.txt`의 행 수) → 운영 DB가 아닌 **새 Supabase 프로젝트**에서 복구 시험
+- 새 테이블을 추가하는 마이그레이션을 만들면 백업에는 자동으로 따라온다. 빈 DB로 앱을 처음 켤 때 스스로 채우는 테이블(지금은 기준 데이터 goal·account·instrument와 설정 최초 승인 rule_change)이 늘면 `BackupRestore.BOOTSTRAPPED`에도 추가해야 한다. 안 하면 복구가 "비어 있지 않은 테이블"로 거부된다
+- 잔고 테이블(holding_snapshot·cash_balance)이 모두 비어 있으면 백업하지 않는다(실패로 남음). 복구하려고 새 DB로 앱을 켰을 때 빈 DB 백업이 좋은 백업을 덮어쓰지 않게
+- **복구 절차(재해 때)**: ① 새 Supabase 프로젝트 ② 앱을 아래 덮어쓰기로 띄운다: `SERVER_PORT=8081`, `BACKUP_DIR=<zip 사본만 둔 폴더>`, `ROBO_COLLECTOR_ENABLED=false`, `ROBO_DAILY_CATCH_UP=false`, `ROBO_BACKUP_ENABLED=false`, 텔레그램·healthcheck 변수 없음 (수집·따라잡기·자동 백업이 복구 전에 DB에 쓰거나 알림을 보내지 않게) ③ `POST /internal/jobs/restore?file=...&confirm=RESTORE` ④ `/internal/jobs/backup`으로 재백업해 원본 manifest와 해시 비교 ⑤ 평소 환경변수로 재기동. 시험 때 쓴 스크립트 틀: 덮어쓰기 값과 같은 형태로 다시 만들면 된다 (비밀값이 들어가므로 저장소 밖에)
+- Windows PowerShell 5.1은 BOM 없는 UTF-8 .ps1의 한글을 잘못 읽어 구문 오류를 낸다. 사용자에게 만들어 주는 스크립트는 BOM을 붙이거나 주석을 영문으로
 
 ## 일별 평가액·낙폭 경보 (실제 DB에서 첫 기록 확인함 2026-10-27. 이어 붙이기·경보는 다음 날 기록부터 실제로 돈다)
 
@@ -117,7 +119,7 @@
 - 한계: 과거 환율이 거의 없어 기능을 켠 날부터 기록한다. 잔고를 늦게 입력하면 그사이 며칠은 이전 수량으로 계산된다. 이미 기록한 날은 나중에 잔고를 고쳐도 다시 계산하지 않는다
 - 사용자 확인: 앱 재기동(Flyway V4) → `/internal/jobs/daily` 응답의 `valuation`이 RECORDED → `GET /api/valuation`에 오늘 줄. 스키마가 4가 되므로 V3 백업은 새 DB에 복구되지 않는다 → 바로 수동 백업을 한 번 만든다
 
-그다음: README의 1단계 남은 작업은 이것으로 끝. 후보는 복구를 새 Supabase 프로젝트에서 실제 시험, 2단계(계좌·모의투자 키 준비 뒤).
+그다음: README의 1단계 남은 작업은 이것으로 끝. 후보는 2단계(계좌·모의투자 키 준비 뒤), 기록이 쌓이면 화면에 지수 추이 그래프.
 
 ## 2단계: 자동 주문 (한국투자증권, 계획 · 아직 시작 안 함)
 

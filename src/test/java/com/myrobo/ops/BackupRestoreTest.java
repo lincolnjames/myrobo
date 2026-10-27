@@ -46,6 +46,18 @@ class BackupRestoreTest {
     }
 
     @Test
+    void theAutoApprovalWrittenAtFirstBootIsReplacedNotRefused(@TempDir Path dir) {
+        // 실제 복구 순서: 새 DB로 앱을 한 번 켜면 설정 최초 승인 한 줄이 rule_change에 생긴다
+        var original = BackupServiceTest.populated().table("rule_change").add("rule_change", "1,APPROVED old-hash");
+        backup(original, dir);
+        var fresh = FakeDb.sample().table("rule_change").add("rule_change", "1,APPROVED auto");
+
+        new BackupRestore(fresh, dir).run(FILE);
+
+        assertEquals(List.of("1,APPROVED old-hash"), fresh.rows.get("rule_change"));
+    }
+
+    @Test
     void refusesWhenAnyHandEnteredTableHasData(@TempDir Path dir) {
         backup(BackupServiceTest.populated(), dir);
         var live = FakeDb.sample().add("order_plan", "5,SENT");

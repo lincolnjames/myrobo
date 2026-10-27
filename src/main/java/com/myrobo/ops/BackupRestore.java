@@ -18,15 +18,18 @@ import java.util.zip.ZipFile;
  * <ul>
  *   <li>zip의 해시를 먼저 검증한다. 데이터베이스는 그 뒤에야 건드린다</li>
  *   <li>마이그레이션 버전과 테이블 구성이 같아야 한다</li>
- *   <li>직접 입력한 기록이 하나라도 있으면 거부한다. 앱이 시작할 때 설정에서 채우는 기준 데이터
- *       (목표·계좌·종목)만 있는 상태는 "비었다"로 보고 백업 내용으로 바꾼다</li>
+ *   <li>직접 입력한 기록이 하나라도 있으면 거부한다. 앱이 처음 시작할 때 스스로 채우는 것
+ *       (설정의 기준 데이터인 목표·계좌·종목, 설정 최초 승인 기록)만 있는 상태는 "비었다"로 보고 백업 내용으로 바꾼다</li>
  *   <li>전부 한 트랜잭션이라 실패하면 아무것도 바뀌지 않는다</li>
  * </ul>
  */
 public final class BackupRestore {
 
-    /** 앱이 시작할 때 설정에서 채우는 테이블 (ReferenceDataBootstrap). */
-    static final Set<String> BOOTSTRAPPED = Set.of("goal", "account", "instrument");
+    /**
+     * 빈 DB로 앱을 처음 시작하면 스스로 채우는 테이블: 기준 데이터(ReferenceDataBootstrap)와 설정 최초 승인
+     * 기록(ConfigApprovalGuard). 복구는 스키마를 만들려고 앱을 한 번 켠 뒤에 하므로 이 테이블은 늘 차 있다.
+     */
+    static final Set<String> BOOTSTRAPPED = Set.of("goal", "account", "instrument", "rule_change");
 
     public record Result(Map<String, Long> rows) {
     }
