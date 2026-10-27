@@ -1,4 +1,4 @@
-// 잔고 입력 화면. 서버 API: GET /api/portfolio, PUT /api/portfolio/snapshot
+// 잔고 입력 화면. 서버 API: GET /api/portfolio, PUT /api/portfolio/snapshot, GET /api/valuation
 // 변경 요청에는 X-Robo-Request 헤더가 필요하다 (CSRF 방어, LocalRequestGuard 참고).
 (function () {
   'use strict';
@@ -83,8 +83,73 @@
     fillForm(data);
   }
 
-  function stat(label, value) {
-    return el('div', { class: 'stat' }, el('div', { class: 'label' }, label), el('div', { class: 'value' }, value));
+  function stat(label, value, sub) {
+    const s = el('div', { class: 'stat' }, el('div', { class: 'label' }, label), el('div', { class: 'value' }, value));
+    if (sub) s.append(el('div', { class: 'meta' }, sub));
+    return s;
+  }
+
+  // ── 평가액과 낙폭 ──
+
+  const LEVEL = { ALERT: ['warn', '경보'], STOP_SATELLITE_BUYS: ['bad', '위성 매수 중단'], LIMIT: ['bad', '낙폭 한도 도달'] };
+  const fmtDd = (v) => (v == null ? '–' : Number(v) === 0 ? '0.00%' : '-' + Number(v).toFixed(2) + '%');
+  const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
+
+  function levelBadge(level, levels) {
+    if (!level) return el('span', { class: 'badge ok' }, '정상');
+    const l = levels.find((x) => x.level === level);
+    const [kind, text] = l ? (LEVEL[l.action] || ['warn', l.action]) : ['warn', '단계 ' + level];
+    return el('span', { class: 'badge ' + kind }, text + (l ? ' · ' + Number(l.atPct) + '%' : ''));
+  }
+
+  function renderValuation(o) {
+    const levels = o.levels || [];
+    const recent = o.recent || [];
+    $('valMeta').textContent = '입출금·매매 영향을 뺀 지수(첫 기록 = 100)가 가장 높았던 때보다 얼마나 내려왔는지예요. '
+      + '경보선 ' + levels.map((l) => Number(l.atPct) + '%').join(' · ') + ' (마지막은 목표의 최대 낙폭 한도) · 매일 08:00 작업이 기록해요.';
+    $('valNotice').replaceChildren();
+    const note = (kind, text) => $('valNotice').append(el('div', { class: 'notice ' + kind }, text));
+
+    const last = recent[0];
+    if (!last) {
+      $('valSummary').replaceChildren();
+      $('valHistory').replaceChildren();
+      note('warn', '아직 기록이 없어요. 잔고를 입력하면 다음 매일 작업부터 기록돼요.');
+      return;
+    }
+    $('valSummary').replaceChildren(
+      stat('고점 대비', fmtDd(last.drawdownPct), '고점 ' + last.peakDate),
+      stat('경보 단계', levelBadge(last.level, levels)),
+      stat('지수 (시작 100)', Number(last.nav).toFixed(2), last.date + ' 기록'),
+      stat('직전 대비', fmtPct(last.returnPct, true)),
+    );
+
+    if (last.level > 0) {
+      const l = levels.find((x) => x.level === last.level);
+      note(LEVEL[l && l.action] ? LEVEL[l.action][0] : 'warn', '고점(' + last.peakDate + ') 대비 ' + Number(last.drawdownPct).toFixed(2)
+        + '% 내려와 있어요. 규칙은 그대로예요. 주문은 발송된 주문안대로만 넣으세요.');
+    }
+    const age = daysBetween(last.date, todayKst());
+    if (age > 1) note('warn', '최근 기록이 ' + age + '일 전(' + last.date + ')이에요. 앱이 꺼져 있었다면 켤 때 따라잡아요.');
+    if (recent.length === 1) note('ok', '기록 첫날이에요. 낙폭은 기록이 쌓이면서 의미가 생겨요.');
+
+    $('valHistory').replaceChildren(...recent.map((r) => el('tr', {},
+      el('td', {}, r.date),
+      el('td', {}, fmtKrw(r.totalKrw)),
+      el('td', {}, fmtPct(r.returnPct, true)),
+      el('td', {}, Number(r.nav).toFixed(2)),
+      el('td', {}, fmtDd(r.drawdownPct)),
+      el('td', {}, levelBadge(r.level, levels)))));
+  }
+
+  async function loadValuation() {
+    try {
+      const res = await fetch('/api/valuation?days=60');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      renderValuation(await res.json());
+    } catch (e) {
+      $('valMeta').textContent = '평가 기록 불러오기 실패: ' + e.message;
+    }
   }
 
   // ── 입력 폼 ──
@@ -371,7 +436,8 @@
   $('form').addEventListener('submit', save);
   $('addLine').addEventListener('click', () => $('lines').append(lineRow('', '', '')));
   $('makePlan').addEventListener('click', makePlan);
-  window.robo = { render, collectForm, save, load, loadPlans, makePlan };
+  window.robo = { render, collectForm, save, load, loadPlans, makePlan, renderValuation, loadValuation };
   load();
+  loadValuation();
   loadPlans();
 })();
