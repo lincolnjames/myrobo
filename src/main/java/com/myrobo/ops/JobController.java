@@ -2,8 +2,11 @@ package com.myrobo.ops;
 
 import com.myrobo.collector.CollectorJob;
 import com.myrobo.collector.CollectorTypes.CollectResult;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
@@ -20,11 +23,39 @@ public class JobController {
     private final CollectorJob collector;
     private final DailyJob daily;
     private final Notifier notifier;
+    private final BackupJob backup;
+    private final BackupRestore restore;
 
-    public JobController(CollectorJob collector, DailyJob daily, Notifier notifier) {
+    public JobController(CollectorJob collector, DailyJob daily, Notifier notifier, BackupJob backup,
+                         BackupRestore restore) {
         this.collector = collector;
         this.daily = daily;
         this.notifier = notifier;
+        this.backup = backup;
+        this.restore = restore;
+    }
+
+    /** 백업을 지금 실행한다. 결과 파일은 백업 폴더(robo.backup.dir)에 생긴다. */
+    @PostMapping(value = "/backup", produces = "application/json;charset=UTF-8")
+    public BackupJob.Summary backup() {
+        return backup.run();
+    }
+
+    /**
+     * 백업 폴더의 zip을 빈 데이터베이스에 되돌린다 (재해 복구용). 실수 방지로 confirm=RESTORE가 있어야 하고,
+     * 직접 입력한 기록이 있는 데이터베이스에는 거부한다.
+     * 예) ...jobs/restore?file=myrobo-2026-11-01.zip&amp;confirm=RESTORE
+     */
+    @PostMapping(value = "/restore", produces = "application/json;charset=UTF-8")
+    public ResponseEntity<Map<String, Object>> restore(@RequestParam String file, @RequestParam String confirm) {
+        if (!"RESTORE".equals(confirm)) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "error", "confirm=RESTORE 가 필요함"));
+        }
+        try {
+            return ResponseEntity.ok(Map.of("ok", true, "rows", restore.run(file).rows()));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("ok", false, "error", e.getMessage()));
+        }
     }
 
     /** charset을 명시해야 Windows PowerShell(Invoke-RestMethod)이 한글을 깨지 않고 읽는다. */

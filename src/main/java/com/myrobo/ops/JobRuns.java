@@ -3,6 +3,7 @@ package com.myrobo.ops;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Optional;
 
@@ -16,6 +17,9 @@ public class JobRuns {
     static final String LAST_STATUS = "select status from job_run where job = :job and status <> 'RUNNING' order by id desc limit 1";
     static final String FINISHED_ON = "select exists (select 1 from job_run where job = :job and status <> 'RUNNING'"
             + " and cast(started_at at time zone 'Asia/Seoul' as date) = :day)";
+
+    static final String LAST_SUCCESS_AT = "select cast(extract(epoch from finished_at) as bigint) from job_run"
+            + " where job = :job and status = 'SUCCESS' and finished_at is not null order by id desc limit 1";
 
     public enum Status { SUCCESS, FAILED, SKIPPED }
 
@@ -40,6 +44,11 @@ public class JobRuns {
     /** 끝난 가장 최근 기록의 상태. 기록이 없으면 비어 있다. */
     public Optional<Status> lastStatus(String job) {
         return jdbc.sql(LAST_STATUS).param("job", job).query(String.class).optional().map(Status::valueOf);
+    }
+
+    /** 가장 최근에 성공으로 끝난 시각. 기록이 없으면 비어 있다. */
+    public Optional<Instant> lastSuccessAt(String job) {
+        return jdbc.sql(LAST_SUCCESS_AT).param("job", job).query(Long.class).optional().map(Instant::ofEpochSecond);
     }
 
     /** 그 날짜(KST)에 시작해 끝난 기록이 있는지. 중간에 죽어 RUNNING으로 남은 건 세지 않는다. */
