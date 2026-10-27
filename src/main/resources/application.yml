@@ -20,10 +20,14 @@ robo:
     require-approval: true        # 승인 안 된 설정 파일이면 시작 거부
   daily:
     auto-plan: true               # 수집이 오류 없이 끝나면 주문안까지 만든다. false면 수집만 (주문은 늘 사람이 한다)
+    catch-up: true                # 앱을 켰을 때 오늘 몫이 없으면(08:00을 놓침) 한 번 따라잡는다
+    catch-up-after: "08:10"       # 이 시각(KST) 이후에만. 정규 실행(08:00)과 겹치지 않게
+    catch-up-delay-seconds: 60    # 기동 후 이만큼 기다렸다가 확인
   notify:
     telegram:
       token: ${TELEGRAM_BOT_TOKEN:}     # 둘 다 있어야 알림이 켜진다. 비밀값이라 환경변수로만
       chat-id: ${TELEGRAM_CHAT_ID:}
+    healthcheck-url: ${HEALTHCHECK_URL:}   # healthchecks.io 핑 URL. 비밀 키가 들어 있어 환경변수로만. 없으면 꺼짐
   collector:
     enabled: true
     cron: "0 0 8 * * *"           # 매일 08:00 KST. 겨울에도 미국 일봉 반영(17:45 ET) 이후

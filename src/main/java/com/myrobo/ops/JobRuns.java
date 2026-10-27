@@ -3,12 +3,19 @@ package com.myrobo.ops;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
+import java.util.Optional;
+
 /** 배치 실행 기록 (job_run). 시작·종료 시각과 결과를 남겨 "조용히 실패"를 막는다. */
 @Component
 public class JobRuns {
 
     static final String START = "insert into job_run (job, status) values (:job, 'RUNNING') returning id";
     static final String FINISH = "update job_run set finished_at = now(), status = :status, error = :error where id = :id";
+
+    static final String LAST_STATUS = "select status from job_run where job = :job and status <> 'RUNNING' order by id desc limit 1";
+    static final String FINISHED_ON = "select exists (select 1 from job_run where job = :job and status <> 'RUNNING'"
+            + " and cast(started_at at time zone 'Asia/Seoul' as date) = :day)";
 
     public enum Status { SUCCESS, FAILED, SKIPPED }
 
@@ -28,5 +35,16 @@ public class JobRuns {
                 .param("error", error)
                 .param("id", id)
                 .update();
+    }
+
+    /** 끝난 가장 최근 기록의 상태. 기록이 없으면 비어 있다. */
+    public Optional<Status> lastStatus(String job) {
+        return jdbc.sql(LAST_STATUS).param("job", job).query(String.class).optional().map(Status::valueOf);
+    }
+
+    /** 그 날짜(KST)에 시작해 끝난 기록이 있는지. 중간에 죽어 RUNNING으로 남은 건 세지 않는다. */
+    public boolean finishedOn(String job, LocalDate day) {
+        return Boolean.TRUE.equals(jdbc.sql(FINISHED_ON).param("job", job).param("day", day)
+                .query(Boolean.class).single());
     }
 }

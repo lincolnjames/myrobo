@@ -86,9 +86,16 @@
 - 알림: SENT, REJECTED, 수집·단계 오류, 미완료 주문안 리마인드, 데이터 검증에 걸린 "주문 없음". 조용한 경우: 정상 "주문 없음", 오늘 이미 있음. 총자산 같은 합계는 외부로 보내지 않는다
 - 환경변수 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` 둘 다 있어야 켜짐. 토큰은 URL에 들어가므로 로그·예외에 URL을 찍지 않는다
 - 수동: `POST /internal/jobs/daily`(전체 실행, 알림도 실제 전송), `POST /internal/jobs/notify-test`(테스트 알림). 둘 다 `X-Robo-Request: 1` 필요
-- 한계: PC가 꺼져 08:00을 놓친 날은 따라잡지 않는다. 알림 전송 실패는 로그에만 남는다 → 외부 감시용 완료 신호 작업에서 다룬다
 
-그다음: 외부 감시용 완료 신호(놓친 날 따라잡기 포함 검토), 주간 백업, 일별 평가액과 낙폭 경보.
+## 완료 신호·따라잡기 (구현됨, 실제 DB·healthchecks.io 확인 전)
+
+- 완료 신호: `DailyJob.run()` 끝에 `HEALTHCHECK_URL`(healthchecks.io 핑 URL, 비밀 키 포함이라 환경변수로만)로 POST. 정상이면 URL, 사람이 볼 일(수집 오류·중단, 주문안 폐기·오류, 알림 전송 실패)이면 `URL/fail`에 `collection=… plan=…` 같은 짧은 코드만 실어 보낸다. 정상 "주문 없음"·오늘 이미 있음·수집만(auto-plan=false)은 성공. URL은 로그에 찍지 않는다
+- 앱이 죽거나 PC가 꺼져 신호가 끊기면 감시 서비스(하루 1번, 유예 2시간 정도로 설정)가 알려 준다. `HEALTHCHECK_URL`이 없으면 꺼짐
+- 알림 전송 실패: 알림이 켜져 있는데 보내지 못하면 `job_run`에 `notify-daily` FAILED를 남기고, 다음에 보내는 첫 알림 앞에 "지난번 알림이 전송에 실패했어요"를 붙인다(전달되면 SUCCESS로 덮어 멈춤). 알림이 꺼진 상태는 실패로 치지 않는다
+- 따라잡기: 기동 60초 뒤 오늘(KST) 08:10 이후인데 오늘 끝난 `plan-daily` 기록이 없으면 `run()`을 한 번 돌린다(`robo.daily.catch-up`, `catch-up-after`, `catch-up-delay-seconds`). 수집·auto-plan이 꺼져 있으면 안 한다. 수집이 예외로 중단된 날은 기록이 없어 다음 기동 때 다시 시도된다
+- 사용자 확인: 앱 기동 로그에 "완료 신호 켜짐", `POST /internal/jobs/daily` 뒤 healthchecks.io 화면에 핑이 찍히는지, 같은 날 다시 기동해도 따라잡기가 또 돌지 않는지(`tools/`의 SQL로 `job_run` 확인)
+
+그다음: 주간 백업, 일별 평가액과 낙폭 경보.
 
 ## 커밋
 

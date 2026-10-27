@@ -15,6 +15,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -51,26 +52,36 @@ class DailyJobTest {
         RuntimeException collectFails;
         RuntimeException planFails;
         boolean notifierThrows;
+        boolean notifierEnabled = true;
+        boolean notifierFails;
+        Optional<Status> lastNotifyStatus = Optional.empty();
+        final List<String> pings = new ArrayList<>();
         boolean autoPlan = true;
         long nextId = 1;
 
         final JobRuns jobRuns = new JobRuns(null) {
             @Override public long start(String job) { calls.add("start " + job); return nextId++; }
             @Override public void finish(long id, Status status, String error) { calls.add("finish " + status); }
+            @Override public Optional<Status> lastStatus(String job) { return lastNotifyStatus; }
         };
         final Notifier notifier = new Notifier() {
             @Override public boolean send(String text) {
                 if (notifierThrows) { throw new IllegalStateException("알림 장애"); }
+                if (notifierFails) { return false; }
                 sent.add(text); return true;
             }
-            @Override public boolean enabled() { return true; }
+            @Override public boolean enabled() { return notifierEnabled; }
+        };
+        final Heartbeat heartbeat = new Heartbeat() {
+            @Override public void success() { pings.add("ok"); }
+            @Override public void failure(String reason) { pings.add("fail " + reason); }
         };
 
         DailyJob job() {
             return new DailyJob(
                     () -> { calls.add("collect"); if (collectFails != null) { throw collectFails; } return collect; },
                     () -> { calls.add("plan"); if (planFails != null) { throw planFails; } return plan; },
-                    jobRuns, notifier, new DailyJob.Settings(true, autoPlan));
+                    jobRuns, notifier, new DailyJob.Settings(true, autoPlan), heartbeat);
         }
     }
 
@@ -172,10 +183,128 @@ class DailyJobTest {
     void scheduledRunDoesNothingWhenCollectionIsDisabled() {
         var f = new Fakes();
         var off = new DailyJob(() -> { f.calls.add("collect"); return f.collect; }, () -> f.plan, f.jobRuns, f.notifier,
-                new DailyJob.Settings(false, true));
+                new DailyJob.Settings(false, true), f.heartbeat);
 
         off.scheduled();
 
         assertTrue(f.calls.isEmpty());
+        assertTrue(f.pings.isEmpty());
+    }
+
+    @Test
+    void aCleanRunSendsTheSuccessSignal() {
+        var f = new Fakes();
+
+        f.job().run();
+
+        assertEquals(List.of("ok"), f.pings);
+    }
+
+    @Test
+    void quietAndDisabledPlansStillCountAsHealthy() {
+        var f = new Fakes();
+        f.plan = result(Outcome.NO_ACTION, null, List.of());
+        f.job().run();
+        var g = new Fakes();
+        g.autoPlan = false;
+        g.job().run();
+
+        assertEquals(List.of("ok"), f.pings);
+        assertEquals(List.of("ok"), g.pings);
+    }
+
+    @Test
+    void problemsSendTheFailureSignalWithoutDetails() {
+        var errors = new Fakes();
+        errors.collect = collected(List.of("VTI 일봉 수집 실패: 시간 초과"));
+        var aborted = new Fakes();
+        aborted.collectFails = new IllegalStateException("DB 연결 끊김");
+        var rejected = new Fakes();
+        rejected.plan = result(Outcome.REJECTED, plan("REJECTED"), List.of());
+        var crashed = new Fakes();
+        crashed.planFails = new IllegalStateException("코어 계좌가 등록되지 않음");
+
+        errors.job().run();
+        aborted.job().run();
+        rejected.job().run();
+        crashed.job().run();
+
+        assertEquals(List.of("fail collection=ERRORS plan=SKIPPED"), errors.pings);
+        assertEquals(List.of("fail collection=ABORTED plan=SKIPPED"), aborted.pings);
+        assertEquals(List.of("fail collection=OK plan=REJECTED"), rejected.pings);
+        assertEquals(List.of("fail collection=OK plan=ERROR"), crashed.pings);
+    }
+
+    @Test
+    void aFailedNotificationIsRecordedAndFlaggedInTheSignal() {
+        var f = new Fakes();
+        f.notifierFails = true;
+
+        f.job().run();
+
+        assertEquals(List.of("collect", "start plan-daily", "plan", "finish SUCCESS",
+                "start notify-daily", "finish FAILED"), f.calls);
+        assertEquals(List.of("fail collection=OK plan=SENT notify=FAILED"), f.pings);
+    }
+
+    @Test
+    void aThrowingNotifierDoesNotStopTheRunAndCountsAsFailed() {
+        var f = new Fakes();
+        f.notifierThrows = true;
+
+        var s = f.job().run();
+
+        assertEquals("SENT", s.plan());
+        assertTrue(f.pings.get(0).contains("notify=FAILED"), f.pings.toString());
+    }
+
+    @Test
+    void aDisabledNotifierIsNotAFailure() {
+        var f = new Fakes();
+        f.notifierEnabled = false;
+        f.notifierFails = true; // 꺼진 알림은 false를 돌려준다
+
+        f.job().run();
+
+        assertEquals(List.of("collect", "start plan-daily", "plan", "finish SUCCESS"), f.calls);
+        assertEquals(List.of("ok"), f.pings);
+    }
+
+    @Test
+    void afterAFailedNotificationTheNextMessageCarriesANoticeOnceAndClearsIt() {
+        var f = new Fakes();
+        f.lastNotifyStatus = Optional.of(Status.FAILED);
+
+        f.job().run();
+
+        assertEquals(1, f.sent.size());
+        assertTrue(f.sent.get(0).startsWith(DailyJob.MISSED_NOTICE), f.sent.get(0));
+        assertTrue(f.sent.get(0).contains("주문안 #7 발송"), f.sent.get(0));
+        assertEquals(List.of("collect", "start plan-daily", "plan", "finish SUCCESS",
+                "start notify-daily", "finish SUCCESS"), f.calls);
+    }
+
+    @Test
+    void noNoticeWhenThereIsNothingToSayAndNoRecordIsWritten() {
+        var f = new Fakes();
+        f.lastNotifyStatus = Optional.of(Status.FAILED);
+        f.plan = result(Outcome.NO_ACTION, null, List.of());
+
+        f.job().run();
+
+        assertTrue(f.sent.isEmpty());
+        assertFalse(f.calls.contains("start notify-daily"), f.calls.toString()); // 안내는 다음 알림까지 남는다
+    }
+
+    @Test
+    void theNoticeIsNotClearedWhenSendingFailsAgain() {
+        var f = new Fakes();
+        f.lastNotifyStatus = Optional.of(Status.FAILED);
+        f.notifierFails = true;
+
+        f.job().run();
+
+        assertEquals(List.of("collect", "start plan-daily", "plan", "finish SUCCESS",
+                "start notify-daily", "finish FAILED"), f.calls);
     }
 }
