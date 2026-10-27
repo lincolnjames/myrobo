@@ -33,7 +33,7 @@ class CatchUpTest {
         };
 
         CatchUp at(String utcInstant, boolean enabled) {
-            return new CatchUp(() -> { runs.add("run"); return new DailyJob.Summary("OK", "SENT"); }, jobRuns,
+            return new CatchUp(() -> { runs.add("run"); return new DailyJob.Summary("OK", "RECORDED", "SENT"); }, jobRuns,
                     Clock.fixed(Instant.parse(utcInstant), ZoneOffset.UTC), AFTER, enabled);
         }
     }

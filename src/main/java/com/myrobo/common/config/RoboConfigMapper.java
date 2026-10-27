@@ -1,6 +1,7 @@
 package com.myrobo.common.config;
 
 import com.myrobo.common.config.RoboConfig.ChangeKind;
+import com.myrobo.common.config.RoboConfig.DrawdownAlert;
 import com.myrobo.common.config.RoboConfig.Goal;
 import com.myrobo.common.config.RoboConfig.Rebalance;
 import com.myrobo.common.config.RoboConfig.Safety;
@@ -102,7 +103,23 @@ public final class RoboConfigMapper {
                         bool(pending.get("blockNewPlan"), "guard.pendingPlan.blockNewPlan"),
                         integer(pending.get("expireTradingDays"), "guard.pendingPlan.expireTradingDays"),
                         integer(fx.get("maxAgeBusinessDays"), "dataSources.fx.maxAgeBusinessDays")),
+                drawdownAlerts(guard.get("drawdownAlerts")),
                 Collections.unmodifiableMap(new LinkedHashMap<>(root))); // YAML의 null 값 허용
+    }
+
+    private List<DrawdownAlert> drawdownAlerts(Object v) {
+        if (!(v instanceof Collection<?> list)) {
+            errors.add("guard.drawdownAlerts: 목록이 없거나 형식이 틀림");
+            return List.of();
+        }
+        List<DrawdownAlert> out = new ArrayList<>();
+        int i = 0;
+        for (Object item : list) {
+            String path = "guard.drawdownAlerts[" + i++ + "]";
+            Map<String, Object> m = asMap(item, path);
+            out.add(new DrawdownAlert(dec(m.get("atPct"), path + ".atPct"), str(m, "action", path + ".action")));
+        }
+        return List.copyOf(out);
     }
 
     // ── 변환 도우미: 실패해도 바로 던지지 않고 오류를 모은 뒤 기본값을 돌려준다 ──

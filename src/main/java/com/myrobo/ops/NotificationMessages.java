@@ -4,6 +4,7 @@ import com.myrobo.plan.PlanViews.CheckView;
 import com.myrobo.plan.PlanViews.CreateResult;
 import com.myrobo.plan.PlanViews.ItemView;
 import com.myrobo.plan.PlanViews.PlanView;
+import com.myrobo.valuation.Drawdown;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -101,6 +102,22 @@ public final class NotificationMessages {
             sb.append("… 외 ").append(errors.size() - MAX_LISTED).append("건\n");
         }
         return sb.append("원인을 해결한 뒤 화면에서 직접 주문안을 만들 수 있어요.").toString();
+    }
+
+    /** 낙폭 경보 단계가 오르거나 풀렸을 때. 퍼센트만 담고 금액은 넣지 않는다. */
+    public static String drawdown(Drawdown.Alert a) {
+        String dd = a.drawdownPct().setScale(2, RoundingMode.HALF_UP).toPlainString() + "%";
+        String peak = "고점(" + a.peakDate() + ")";
+        if (a.kind() == Drawdown.Alert.Kind.RECOVERED) {
+            return TAG + "낙폭 경보 해제: " + peak + " 대비 하락이 " + dd + "로 줄었어요.";
+        }
+        String line = a.level().atPct().stripTrailingZeros().toPlainString() + "%";
+        String head = TAG + "[주의] 낙폭 경보: " + peak + " 대비 " + dd + " 하락했어요 (경보선 " + line + ").";
+        return head + "\n" + switch (a.level().action()) {
+            case "STOP_SATELLITE_BUYS" -> "위성 매수 중단 단계예요. 위성은 지금 모의 운용이라 실제 주문에는 영향이 없어요.";
+            case Drawdown.LIMIT -> "목표에서 정한 최대 낙폭 한도에 닿았어요. 규칙을 급히 바꾸지 말고 목표와 배분을 점검해 주세요.";
+            default -> "규칙은 그대로예요. 주문안은 평소대로 확인해 주세요.";
+        };
     }
 
     /** 작업이 예외로 멈췄을 때. 예외 메시지는 길이만 제한해 담는다. */

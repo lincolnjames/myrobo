@@ -4,6 +4,7 @@ import com.myrobo.collector.CollectorTypes.CollectResult;
 import com.myrobo.ops.JobRuns.Status;
 import com.myrobo.plan.PlanViews.CreateResult;
 import com.myrobo.plan.PlanViews.Outcome;
+import com.myrobo.valuation.ValuationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -12,7 +13,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 /**
- * 매일 08:00(KST): 수집 → 주문안 만들기 → 알림.
+ * 매일 08:00(KST): 수집 → 일별 평가·낙폭 경보 → 주문안 만들기 → 알림.
  *
  * <p>주문안은 "계산해서 알려 주는 것"까지만 자동이고, 주문은 사람이 증권사 앱에서 넣는다.
  * 수집에 오류가 있으면 일부 종목만 갱신된 상태로 주문안을 내지 않도록 그날은 만들지 않는다
@@ -35,10 +36,11 @@ public class DailyJob {
     }
 
     /** 수동 실행 응답용 요약. */
-    public record Summary(String collection, String plan) {
+    public record Summary(String collection, String valuation, String plan) {
     }
 
     private final Supplier<CollectResult> collect;
+    private final Supplier<ValuationService.Outcome> valuate;
     private final Supplier<CreateResult> createPlan;
     private final JobRuns jobRuns;
     private final Notifier notifier;
@@ -50,9 +52,11 @@ public class DailyJob {
     private boolean noticeDelivered;
     private boolean notifyFailed;
 
-    public DailyJob(Supplier<CollectResult> collect, Supplier<CreateResult> createPlan, JobRuns jobRuns,
-                    Notifier notifier, Settings settings, Heartbeat heartbeat) {
+    public DailyJob(Supplier<CollectResult> collect, Supplier<ValuationService.Outcome> valuate,
+                    Supplier<CreateResult> createPlan, JobRuns jobRuns, Notifier notifier, Settings settings,
+                    Heartbeat heartbeat) {
         this.collect = collect;
+        this.valuate = valuate;
         this.createPlan = createPlan;
         this.jobRuns = jobRuns;
         this.notifier = notifier;
@@ -87,19 +91,37 @@ public class DailyJob {
         } catch (RuntimeException e) {
             log.error("수집 중단으로 주문안을 만들지 않음", e);
             notify(NotificationMessages.failure("수집", e));
-            return new Summary("ABORTED", "SKIPPED");
+            return new Summary("ABORTED", "SKIPPED", "SKIPPED");
         }
         if (!c.ok()) {
             log.warn("수집 오류 {}건이라 오늘 주문안을 만들지 않음", c.errors().size());
             skipRecord("수집 오류로 건너뜀: " + String.join(" / ", c.errors()));
             notify(NotificationMessages.collectionErrors(c.errors()));
-            return new Summary("ERRORS", "SKIPPED");
+            return new Summary("ERRORS", "SKIPPED", "SKIPPED");
         }
+        String valuation = valuate();
         if (!settings.autoPlan()) {
             log.info("자동 주문안이 꺼져 있음 (robo.daily.auto-plan=false)");
-            return new Summary("OK", "DISABLED");
+            return new Summary("OK", valuation, "DISABLED");
         }
-        return new Summary("OK", plan());
+        return new Summary("OK", valuation, plan());
+    }
+
+    /** 일별 평가와 낙폭 경보. 실패해도 주문안 만들기는 계속한다 (완료 신호에는 실패로 남긴다). */
+    private String valuate() {
+        try {
+            ValuationService.Outcome o = valuate.get();
+            if (o.status() == ValuationService.Status.FAILED) {
+                log.warn("일별 평가 실패: {}", o.detail());
+            } else {
+                log.info("일별 평가: {} - {}", o.status(), o.detail());
+            }
+            o.alert().map(NotificationMessages::drawdown).ifPresent(this::notify);
+            return o.status().name();
+        } catch (RuntimeException e) {
+            log.error("일별 평가 중단", e);
+            return ValuationService.Status.FAILED.name();
+        }
     }
 
     private String plan() {
@@ -169,12 +191,13 @@ public class DailyJob {
 
     /** 사람이 볼 일이 없었고 알림도 잘 갔을 때만 성공 신호. */
     private void signal(Summary s) {
-        boolean healthy = "OK".equals(s.collection()) && HEALTHY_PLANS.contains(s.plan()) && !notifyFailed;
+        boolean healthy = "OK".equals(s.collection()) && HEALTHY_PLANS.contains(s.plan()) && !notifyFailed
+                && !ValuationService.Status.FAILED.name().equals(s.valuation());
         try {
             if (healthy) {
                 heartbeat.success();
             } else {
-                heartbeat.failure("collection=" + s.collection() + " plan=" + s.plan()
+                heartbeat.failure("collection=" + s.collection() + " valuation=" + s.valuation() + " plan=" + s.plan()
                         + (notifyFailed ? " notify=FAILED" : ""));
             }
         } catch (RuntimeException e) {

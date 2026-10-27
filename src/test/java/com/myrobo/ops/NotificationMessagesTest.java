@@ -3,8 +3,11 @@ package com.myrobo.ops;
 import com.myrobo.plan.PlanViews.CheckView;
 import com.myrobo.plan.PlanViews.CreateResult;
 import com.myrobo.plan.PlanViews.Outcome;
+import com.myrobo.valuation.Drawdown;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -22,6 +25,25 @@ class NotificationMessagesTest {
     private static final CheckView STARTED_FAIL = new CheckView("GOAL_STARTED", "목표 시작일", false, "시작일 전");
     private static final CheckView FRESH_FAIL = new CheckView("PRICE_FRESH", "시세 신선도", false, "3거래일 전");
     private static final CheckView OK = new CheckView("FX_FRESH", "환율 신선도", true, "1일 전");
+
+    @Test
+    void drawdownMessagesCarryPercentagesAndTheStepButNoAmounts() {
+        var peak = LocalDate.of(2026, 11, 3);
+        String alert = NotificationMessages.drawdown(new Drawdown.Alert(Drawdown.Alert.Kind.UP,
+                new Drawdown.Level(1, new BigDecimal("15"), "ALERT"), new BigDecimal("16.2"), peak));
+        String satellite = NotificationMessages.drawdown(new Drawdown.Alert(Drawdown.Alert.Kind.UP,
+                new Drawdown.Level(2, new BigDecimal("20"), "STOP_SATELLITE_BUYS"), new BigDecimal("20.5"), peak));
+        String limit = NotificationMessages.drawdown(new Drawdown.Alert(Drawdown.Alert.Kind.UP,
+                new Drawdown.Level(3, new BigDecimal("25.0"), Drawdown.LIMIT), new BigDecimal("25"), peak));
+        String recovered = NotificationMessages.drawdown(new Drawdown.Alert(Drawdown.Alert.Kind.RECOVERED,
+                null, new BigDecimal("12.3456"), peak));
+
+        assertTrue(alert.contains("고점(2026-11-03) 대비 16.20% 하락") && alert.contains("경보선 15%"), alert);
+        assertTrue(satellite.contains("위성 매수 중단"), satellite);
+        assertTrue(limit.contains("최대 낙폭 한도") && limit.contains("경보선 25%"), limit);
+        assertTrue(recovered.contains("경보 해제") && recovered.contains("12.35%"), recovered);
+        assertFalse(alert.contains("원") || alert.contains("$"), alert);
+    }
 
     @Test
     void sentMessageListsSellFxBuyInOrderWithoutTotals() {

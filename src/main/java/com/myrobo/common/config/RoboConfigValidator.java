@@ -36,6 +36,23 @@ public final class RoboConfigValidator {
             p.add("goal.maxDrawdownPct는 0 초과 100 이하여야 함");
         }
 
+        // 낙폭 경보: 낮은 것부터 차례로, 목표의 최대 낙폭 한도보다 작아야 한다 (한도는 마지막 경보 단계로 따로 쓴다)
+        BigDecimal prevAt = BigDecimal.ZERO;
+        for (int i = 0; i < c.drawdownAlerts().size(); i++) {
+            RoboConfig.DrawdownAlert a = c.drawdownAlerts().get(i);
+            String path = "guard.drawdownAlerts[" + i + "]";
+            if (!RoboConfig.DRAWDOWN_ACTIONS.contains(a.action())) {
+                p.add(path + ".action '" + a.action() + "'은 " + new TreeSet<>(RoboConfig.DRAWDOWN_ACTIONS) + " 중 하나여야 함");
+            }
+            if (a.atPct().compareTo(prevAt) <= 0) {
+                p.add(path + ".atPct는 0보다 크고 앞 단계보다 커야 함");
+            }
+            if (a.atPct().compareTo(c.goal().maxDrawdownPct()) >= 0) {
+                p.add(path + ".atPct는 goal.maxDrawdownPct보다 작아야 함");
+            }
+            prevAt = a.atPct();
+        }
+
         // 프로필
         if (!c.profiles().keySet().containsAll(HORIZONS)) {
             Set<String> missing = new TreeSet<>(HORIZONS);

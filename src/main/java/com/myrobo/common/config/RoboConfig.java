@@ -6,6 +6,7 @@ import com.myrobo.portfolio.RebalancePlanner;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -30,7 +31,15 @@ public record RoboConfig(
         Rebalance rebalance,
         BigDecimal equityCapPct,
         Safety safety,
+        List<DrawdownAlert> drawdownAlerts,
         Map<String, Object> raw) {
+
+    /** 낙폭 경보 단계에서 쓸 수 있는 동작. */
+    public static final Set<String> DRAWDOWN_ACTIONS = Set.of("ALERT", "STOP_SATELLITE_BUYS");
+
+    /** 고점 대비 이만큼(퍼센트) 떨어지면 알리고 동작을 건다 (guard.drawdownAlerts). */
+    public record DrawdownAlert(BigDecimal atPct, String action) {
+    }
 
     /** 주식으로 보는 자산군. 주식 비중 상한 검사에 쓰인다. */
     public static final Set<String> EQUITY_CLASSES = Set.of("US_STOCK", RebalancePlanner.SATELLITE);

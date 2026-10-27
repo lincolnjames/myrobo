@@ -32,6 +32,29 @@ class RoboConfigFilesTest {
         var targets = loaded.config().targetsFor("OPEN");
         assertEquals(new BigDecimal("0.35"), targets.get("VTI").stripTrailingZeros());
         assertEquals(new BigDecimal("0.1"), targets.get("SATELLITE").stripTrailingZeros());
+        // 낙폭 경보선: 15% 알림, 20% 위성 매수 중단 (목표 한도 25%는 별도)
+        var alerts = loaded.config().drawdownAlerts();
+        assertEquals(2, alerts.size());
+        assertEquals(new RoboConfig.DrawdownAlert(new BigDecimal("15"), "ALERT"), alerts.get(0));
+        assertEquals("STOP_SATELLITE_BUYS", alerts.get(1).action());
+    }
+
+    @Test
+    void unknownDrawdownActionIsRejected() throws IOException {
+        ConfigException e = assertThrows(ConfigException.class, () -> load(s ->
+                s.replace("action: STOP_SATELLITE_BUYS", "action: SELL_EVERYTHING")));
+        assertTrue(e.problems().stream().anyMatch(p -> p.contains("drawdownAlerts[1].action")), e.getMessage());
+    }
+
+    @Test
+    void drawdownAlertsMustRiseAndStayBelowTheGoalLimit() throws IOException {
+        ConfigException notRising = assertThrows(ConfigException.class, () -> load(s ->
+                s.replace("{ atPct: 20, action: STOP_SATELLITE_BUYS }", "{ atPct: 10, action: STOP_SATELLITE_BUYS }")));
+        ConfigException tooHigh = assertThrows(ConfigException.class, () -> load(s ->
+                s.replace("{ atPct: 20, action: STOP_SATELLITE_BUYS }", "{ atPct: 25, action: STOP_SATELLITE_BUYS }")));
+
+        assertTrue(notRising.problems().stream().anyMatch(p -> p.contains("앞 단계보다")), notRising.getMessage());
+        assertTrue(tooHigh.problems().stream().anyMatch(p -> p.contains("maxDrawdownPct보다 작아야")), tooHigh.getMessage());
     }
 
     @Test

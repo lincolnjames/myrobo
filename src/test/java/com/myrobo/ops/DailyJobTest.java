@@ -7,6 +7,8 @@ import com.myrobo.plan.PlanViews.CreateResult;
 import com.myrobo.plan.PlanViews.ItemView;
 import com.myrobo.plan.PlanViews.Outcome;
 import com.myrobo.plan.PlanViews.PlanView;
+import com.myrobo.valuation.Drawdown;
+import com.myrobo.valuation.ValuationService;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -58,6 +60,10 @@ class DailyJobTest {
         final List<String> pings = new ArrayList<>();
         boolean autoPlan = true;
         long nextId = 1;
+        ValuationService.Outcome valuation = new ValuationService.Outcome(ValuationService.Status.RECORDED, "낙폭 0%",
+                null, Optional.empty());
+        RuntimeException valuationFails;
+        int valuations;
 
         final JobRuns jobRuns = new JobRuns(null) {
             @Override public long start(String job) { calls.add("start " + job); return nextId++; }
@@ -80,6 +86,7 @@ class DailyJobTest {
         DailyJob job() {
             return new DailyJob(
                     () -> { calls.add("collect"); if (collectFails != null) { throw collectFails; } return collect; },
+                    () -> { valuations++; if (valuationFails != null) { throw valuationFails; } return valuation; },
                     () -> { calls.add("plan"); if (planFails != null) { throw planFails; } return plan; },
                     jobRuns, notifier, new DailyJob.Settings(true, autoPlan), heartbeat);
         }
@@ -91,7 +98,7 @@ class DailyJobTest {
 
         var s = f.job().run();
 
-        assertEquals(new DailyJob.Summary("OK", "SENT"), s);
+        assertEquals(new DailyJob.Summary("OK", "RECORDED", "SENT"), s);
         assertEquals(List.of("collect", "start plan-daily", "plan", "finish SUCCESS"), f.calls);
         assertEquals(1, f.sent.size());
         assertTrue(f.sent.get(0).contains("주문안 #7 발송"), f.sent.get(0));
@@ -104,7 +111,7 @@ class DailyJobTest {
 
         var s = f.job().run();
 
-        assertEquals(new DailyJob.Summary("ERRORS", "SKIPPED"), s);
+        assertEquals(new DailyJob.Summary("ERRORS", "SKIPPED", "SKIPPED"), s);
         assertFalse(f.calls.contains("plan"), f.calls.toString()); // 주문안을 만들지 않는다
         assertEquals(List.of("collect", "start plan-daily", "finish SKIPPED"), f.calls);
         assertEquals(1, f.sent.size());
@@ -125,7 +132,7 @@ class DailyJobTest {
 
         var s = f.job().run();
 
-        assertEquals(new DailyJob.Summary("ABORTED", "SKIPPED"), s);
+        assertEquals(new DailyJob.Summary("ABORTED", "SKIPPED", "SKIPPED"), s);
         assertEquals(List.of("collect"), f.calls);
         assertTrue(f.sent.get(0).contains("수집"), f.sent.get(0));
         assertTrue(f.sent.get(0).contains("DB 연결 끊김"), f.sent.get(0));
@@ -138,7 +145,7 @@ class DailyJobTest {
 
         var s = f.job().run();
 
-        assertEquals(new DailyJob.Summary("OK", "DISABLED"), s);
+        assertEquals(new DailyJob.Summary("OK", "RECORDED", "DISABLED"), s);
         assertEquals(List.of("collect"), f.calls);
         assertTrue(f.sent.isEmpty());
     }
@@ -182,13 +189,87 @@ class DailyJobTest {
     @Test
     void scheduledRunDoesNothingWhenCollectionIsDisabled() {
         var f = new Fakes();
-        var off = new DailyJob(() -> { f.calls.add("collect"); return f.collect; }, () -> f.plan, f.jobRuns, f.notifier,
-                new DailyJob.Settings(false, true), f.heartbeat);
+        var off = new DailyJob(() -> { f.calls.add("collect"); return f.collect; }, () -> f.valuation, () -> f.plan,
+                f.jobRuns, f.notifier, new DailyJob.Settings(false, true), f.heartbeat);
 
         off.scheduled();
 
         assertTrue(f.calls.isEmpty());
         assertTrue(f.pings.isEmpty());
+    }
+
+    @Test
+    void valuationRunsAfterCollectionEvenWhenAutoPlanIsOff() {
+        var on = new Fakes();
+        var off = new Fakes();
+        off.autoPlan = false;
+
+        on.job().run();
+        off.job().run();
+
+        assertEquals(1, on.valuations);
+        assertEquals(1, off.valuations);
+    }
+
+    @Test
+    void collectionErrorsSkipTheValuationToo() {
+        var f = new Fakes();
+        f.collect = collected(List.of("VTI 일봉 수집 실패"));
+
+        assertEquals("SKIPPED", f.job().run().valuation());
+
+        assertEquals(0, f.valuations);
+    }
+
+    @Test
+    void aDrawdownAlertIsSentAndThePlanStillRuns() {
+        var f = new Fakes();
+        var level = new Drawdown.Level(1, new BigDecimal("15"), "ALERT");
+        f.valuation = new ValuationService.Outcome(ValuationService.Status.RECORDED, "낙폭 16.2%", null,
+                Optional.of(new Drawdown.Alert(Drawdown.Alert.Kind.UP, level, new BigDecimal("16.2"),
+                        LocalDate.of(2026, 11, 3))));
+
+        var s = f.job().run();
+
+        assertEquals("SENT", s.plan());
+        assertEquals(2, f.sent.size());
+        assertTrue(f.sent.get(0).contains("낙폭 경보"), f.sent.get(0));
+        assertTrue(f.sent.get(0).contains("16.20%"), f.sent.get(0));
+        assertEquals(List.of("ok"), f.pings); // 경보는 정상 동작이라 완료 신호는 성공
+    }
+
+    @Test
+    void aFailedValuationDoesNotStopThePlanButFailsTheSignal() {
+        var f = new Fakes();
+        f.valuation = new ValuationService.Outcome(ValuationService.Status.FAILED, "평가에 필요한 값이 없음: VTI", null,
+                Optional.empty());
+
+        var s = f.job().run();
+
+        assertEquals(new DailyJob.Summary("OK", "FAILED", "SENT"), s);
+        assertEquals(List.of("fail collection=OK valuation=FAILED plan=SENT"), f.pings);
+    }
+
+    @Test
+    void aCrashingValuationIsTreatedAsFailed() {
+        var f = new Fakes();
+        f.valuationFails = new IllegalStateException("DB 끊김");
+
+        var s = f.job().run();
+
+        assertEquals("FAILED", s.valuation());
+        assertEquals("SENT", s.plan());
+    }
+
+    @Test
+    void aSkippedValuationIsNotAFailure() {
+        var f = new Fakes();
+        f.valuation = new ValuationService.Outcome(ValuationService.Status.SKIPPED, "잔고 입력 전", null,
+                Optional.empty());
+
+        f.job().run();
+
+        assertEquals(List.of("ok"), f.pings);
     }
 
     @Test
@@ -229,10 +310,10 @@ class DailyJobTest {
         rejected.job().run();
         crashed.job().run();
 
-        assertEquals(List.of("fail collection=ERRORS plan=SKIPPED"), errors.pings);
-        assertEquals(List.of("fail collection=ABORTED plan=SKIPPED"), aborted.pings);
-        assertEquals(List.of("fail collection=OK plan=REJECTED"), rejected.pings);
-        assertEquals(List.of("fail collection=OK plan=ERROR"), crashed.pings);
+        assertEquals(List.of("fail collection=ERRORS valuation=SKIPPED plan=SKIPPED"), errors.pings);
+        assertEquals(List.of("fail collection=ABORTED valuation=SKIPPED plan=SKIPPED"), aborted.pings);
+        assertEquals(List.of("fail collection=OK valuation=RECORDED plan=REJECTED"), rejected.pings);
+        assertEquals(List.of("fail collection=OK valuation=RECORDED plan=ERROR"), crashed.pings);
     }
 
     @Test
@@ -244,7 +325,7 @@ class DailyJobTest {
 
         assertEquals(List.of("collect", "start plan-daily", "plan", "finish SUCCESS",
                 "start notify-daily", "finish FAILED"), f.calls);
-        assertEquals(List.of("fail collection=OK plan=SENT notify=FAILED"), f.pings);
+        assertEquals(List.of("fail collection=OK valuation=RECORDED plan=SENT notify=FAILED"), f.pings);
     }
 
     @Test

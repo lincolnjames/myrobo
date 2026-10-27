@@ -3,6 +3,7 @@ package com.myrobo.ops;
 import com.myrobo.collector.CollectorJob;
 import com.myrobo.collector.CollectorProperties;
 import com.myrobo.plan.PlanService;
+import com.myrobo.valuation.ValuationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -58,10 +59,10 @@ public class OpsConfiguration {
     }
 
     @Bean
-    DailyJob dailyJob(CollectorJob collector, PlanService plans, JobRuns jobRuns, Notifier notifier,
-                      @Qualifier("dailyHeartbeat") Heartbeat heartbeat, CollectorProperties collectorProps,
-                      @Value("${robo.daily.auto-plan:true}") boolean autoPlan) {
-        return new DailyJob(collector::run, plans::create, jobRuns, notifier,
+    DailyJob dailyJob(CollectorJob collector, ValuationService valuations, PlanService plans, JobRuns jobRuns,
+                      Notifier notifier, @Qualifier("dailyHeartbeat") Heartbeat heartbeat,
+                      CollectorProperties collectorProps, @Value("${robo.daily.auto-plan:true}") boolean autoPlan) {
+        return new DailyJob(collector::run, valuations::run, plans::create, jobRuns, notifier,
                 new DailyJob.Settings(collectorProps.enabled(), autoPlan), heartbeat);
     }
 
