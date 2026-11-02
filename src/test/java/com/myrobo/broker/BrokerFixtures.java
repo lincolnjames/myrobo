@@ -1,5 +1,6 @@
 package com.myrobo.broker;
 
+import com.myrobo.broker.DispatchStore.Phase;
 import com.myrobo.broker.OrderPlanner.Order;
 import com.myrobo.collector.http.Sleeper;
 import com.myrobo.ops.Notifier;
@@ -42,6 +43,15 @@ final class BrokerFixtures {
     static String buyable(String usd) {
         return BUYABLE_100K.replace("\"ord_psbl_frcr_amt\":\"100000.00\"", "\"ord_psbl_frcr_amt\":\"" + usd + "\"");
     }
+
+    /** 2026-11-02 모의 서버의 실제 취소 성공 응답: rt_cd가 1이다 (msg1은 콘솔에서 깨져 보여 길이로 추정한 문구). */
+    static final String CANCEL_OK = """
+            {"rt_cd":"1","msg_cd":"40720000","msg1":"모의투자 예약주문 취소 완료"}""";
+    /** 같은 예약을 다시 취소했을 때의 실제 응답. */
+    static final String CANCEL_ALREADY = """
+            {"rt_cd":"1","msg_cd":"40830000","msg1":"모의투자 정정/취소된 예약주문입니다."}""";
+    static final String CANCEL_FAIL = """
+            {"rt_cd":"1","msg_cd":"APBK0999","msg1":"취소할 주문이 없습니다."}""";
 
     static String reserveOk(String odno) {
         return "{\"rt_cd\":\"0\",\"msg_cd\":\"APBK0013\",\"msg1\":\"주문 전송 완료 되었습니다.\","
@@ -162,9 +172,9 @@ final class BrokerFixtures {
         }
     }
 
-    /** 메모리 전송 기록. */
+    /** 메모리 전송 기록. 시도 날짜는 clock의 한국 날짜. */
     static final class MemoryStore implements DispatchStore {
-        record Row(long id, long planId, Mode mode, String status, String message) {
+        record Row(long id, long planId, Mode mode, Phase phase, String status, String message, LocalDate day) {
         }
 
         record OrderRow(long id, long dispatchId, Order order, String status, String odno, String msg) {
@@ -172,22 +182,40 @@ final class BrokerFixtures {
 
         final List<Row> dispatches = new ArrayList<>();
         final List<OrderRow> orders = new ArrayList<>();
+        final Clock clock;
         BigDecimal submittedToday = BigDecimal.ZERO;
         boolean loseRace;
 
-        @Override
-        public Optional<String> status(long planId, Mode mode) {
-            return dispatches.stream().filter(r -> r.planId() == planId && r.mode() == mode).map(Row::status).findFirst();
+        MemoryStore(Clock clock) {
+            this.clock = clock;
         }
 
         @Override
-        public Optional<Long> start(long planId, Mode mode) {
-            if (loseRace) {
+        public List<Attempt> attempts(long planId, Mode mode) {
+            return dispatches.stream().filter(r -> r.planId() == planId && r.mode() == mode)
+                    .map(r -> new Attempt(r.id(), r.phase(), r.status(), r.day())).toList();
+        }
+
+        @Override
+        public Optional<Long> start(long planId, Mode mode, Phase phase) {
+            if (loseRace || dispatches.stream().anyMatch(r -> r.planId() == planId && r.mode() == mode && r.phase() == phase)) {
                 return Optional.empty();
             }
             long id = dispatches.size() + 1;
-            dispatches.add(new Row(id, planId, mode, "PENDING", null));
+            dispatches.add(new Row(id, planId, mode, phase, "PENDING", null,
+                    clock.instant().atZone(ZoneId.of("Asia/Seoul")).toLocalDate()));
             return Optional.of(id);
+        }
+
+        @Override
+        public void cancelResult(long orderId, String status, KisClient.Reply r) {
+            OrderRow o = orders.get((int) orderId - 1);
+            orders.set((int) orderId - 1, new OrderRow(o.id(), o.dispatchId(), o.order(), status, o.odno(),
+                    "취소: " + (r == null ? "" : r.summary())));
+        }
+
+        Row dispatch(Phase phase) {
+            return dispatches.stream().filter(r -> r.phase() == phase).findFirst().orElseThrow();
         }
 
         @Override
@@ -207,7 +235,7 @@ final class BrokerFixtures {
         @Override
         public void finish(long dispatchId, String status, String message) {
             Row r = dispatches.get((int) dispatchId - 1);
-            dispatches.set((int) dispatchId - 1, new Row(r.id(), r.planId(), r.mode(), status, message));
+            dispatches.set((int) dispatchId - 1, new Row(r.id(), r.planId(), r.mode(), r.phase(), status, message, r.day()));
         }
 
         @Override

@@ -19,6 +19,7 @@ import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -53,6 +54,14 @@ public final class KisClient {
     static final String BUYABLE_TR = "TTTS3007R";
     static final String RESERVE_BUY_TR = "TTTT3014U";
     static final String RESERVE_SELL_TR = "TTTT3016U";
+    static final String CANCEL_PATH = "/uapi/overseas-stock/v1/trading/order-resv-ccnl";
+    static final String CANCEL_TR = "TTTT3017U";
+    /**
+     * 예약 취소가 끝났다고 볼 응답 코드. 2026-11-02 모의 서버는 취소에 성공해도 rt_cd=1을 줬다:
+     * 40720000(예약주문 취소 완료), 같은 주문을 다시 취소하면 40830000(정정/취소된 예약주문입니다).
+     * 정정은 하지 않으므로 40830000도 "더 이상 살아 있는 예약이 아님"으로 본다. 그 밖의 코드는 실패로 둔다.
+     */
+    static final Set<String> CANCEL_DONE_CODES = Set.of("40720000", "40830000");
 
     /** 앞 요청의 응답을 받은 뒤 다음 요청까지 쉬는 시간. 보낸 시각부터 재면 응답이 느릴 때 서버에 붙어서 도착한다 (2026-11-02 EGW00201). */
     static final Duration PACE = Duration.ofMillis(1100);
@@ -159,6 +168,24 @@ public final class KisClient {
         body.put("ORD_SVR_DVSN_CD", "0");
         body.put("ORD_DVSN", "00"); // 지정가. 모의투자는 지정가만 된다
         return call("POST", RESERVE_PATH, trId(side == Side.BUY ? RESERVE_BUY_TR : RESERVE_SELL_TR), null, body);
+    }
+
+    /**
+     * 미국 예약주문 취소. 공식 예제 order_resv_ccnl.py: 접수일자(RSVN_ORD_RCIT_DT, yyyyMMdd)와
+     * 예약주문 접수 응답의 ODNO(OVRS_RSVN_ODNO)가 필요하다.
+     */
+    public synchronized Reply cancelReservation(String orderNo, String receiptDate) {
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("CANO", cano);
+        body.put("ACNT_PRDT_CD", productCode);
+        body.put("RSVN_ORD_RCIT_DT", receiptDate);
+        body.put("OVRS_RSVN_ODNO", orderNo);
+        return call("POST", CANCEL_PATH, trId(CANCEL_TR), null, body);
+    }
+
+    /** 예약 취소 응답이 "취소됨"인지. rt_cd만 보면 모의 서버의 성공 응답을 실패로 읽는다 ({@link #CANCEL_DONE_CODES}). */
+    public static boolean cancelled(Reply r) {
+        return r.ok() || CANCEL_DONE_CODES.contains(r.msgCd());
     }
 
     /** 모의투자 TR ID는 실전 TR ID의 첫 글자를 V로 바꾼 것. */
