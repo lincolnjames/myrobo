@@ -78,6 +78,17 @@ class CatchUpTest {
     }
 
     @Test
+    void triesOnlyOncePerDayEvenIfNothingWasRecorded() {
+        var f = new Fixture();
+        CatchUp c = f.at("2026-11-02T01:00:00Z", true); // 수집이 예외로 멈추면 기록이 남지 않는다
+
+        assertTrue(c.runIfMissed());
+        assertFalse(c.runIfMissed());
+
+        assertEquals(List.of("run"), f.runs);
+    }
+
+    @Test
     void doesNothingWhenDisabled() {
         var f = new Fixture();
 
