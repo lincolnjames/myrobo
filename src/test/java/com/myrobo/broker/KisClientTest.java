@@ -235,6 +235,30 @@ class KisClientTest {
     }
 
     @Test
+    void cancelReservationSendsReceiptDateAndOrderNumber() {
+        var t = new FakeKis().on(TOKEN, TOKEN_OK).on(KisClient.CANCEL_PATH, BrokerFixtures.CANCEL_OK);
+
+        KisClient.Reply r = client(t, new TestClock("2026-11-02T03:00:00Z")).cancelReservation("267", "20261102");
+
+        assertFalse(r.ok());               // 모의 서버는 성공해도 rt_cd=1
+        assertTrue(KisClient.cancelled(r)); // 그래서 취소 여부는 코드로 본다
+        Sent s = t.to(KisClient.CANCEL_PATH).get(0);
+        assertEquals("POST", s.method());
+        assertEquals("VTTT3017U", s.headers().get("tr_id"));
+        assertEquals("{\"CANO\":\"50123456\",\"ACNT_PRDT_CD\":\"01\",\"RSVN_ORD_RCIT_DT\":\"20261102\",\"OVRS_RSVN_ODNO\":\"267\"}",
+                s.body());
+    }
+
+    @Test
+    void cancelOutcomeIsReadFromTheMessageCode() {
+        assertTrue(KisClient.cancelled(KisClient.reply(new KisTransport.Response(200, BrokerFixtures.CANCEL_OK))));
+        assertTrue(KisClient.cancelled(KisClient.reply(new KisTransport.Response(200, BrokerFixtures.CANCEL_ALREADY))));
+        assertTrue(KisClient.cancelled(KisClient.reply(new KisTransport.Response(200, "{\"rt_cd\":\"0\",\"msg_cd\":\"X\",\"msg1\":\"\"}"))));
+        assertFalse(KisClient.cancelled(KisClient.reply(new KisTransport.Response(500, BrokerFixtures.CANCEL_FAIL))));
+        assertFalse(KisClient.cancelled(KisClient.reply(new KisTransport.Response(500, "{\"rt_cd\":\"1\",\"msg_cd\":\"EGW00201\",\"msg1\":\"\"}"))));
+    }
+
+    @Test
     void liveUsesRealTrIds() {
         var c = new KisClient(new FakeKis(), KisClient.Env.LIVE, APP_KEY, APP_SECRET, ACCOUNT,
                 new TestClock("2026-11-02T03:00:00Z"), new RecordingSleeper());

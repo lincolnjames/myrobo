@@ -5,15 +5,18 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
-/** broker_dispatch·broker_order 저장 (V5). */
+/** broker_dispatch·broker_order 저장 (V5, V6). */
 public class JdbcDispatchStore implements DispatchStore {
 
-    static final String STATUS = "select status from broker_dispatch where plan_id = :plan and mode = :mode";
+    static final String ATTEMPTS = """
+            select id, phase, status, cast(created_at at time zone 'Asia/Seoul' as date) as day
+            from broker_dispatch where plan_id = :plan and mode = :mode order by id""";
     static final String START = """
-            insert into broker_dispatch (plan_id, mode, status) values (:plan, :mode, 'PENDING')
-            on conflict (plan_id, mode) do nothing
+            insert into broker_dispatch (plan_id, mode, phase, status) values (:plan, :mode, :phase, 'PENDING')
+            on conflict (plan_id, mode, phase) do nothing
             returning id""";
     static final String ADD_ORDER = """
             insert into broker_order (dispatch_id, plan_item_id, side, symbol, exchange, qty, limit_price, status)
@@ -27,6 +30,8 @@ public class JdbcDispatchStore implements DispatchStore {
                                      end,
                    rt_cd = :rt, msg_cd = :msgCd, message = :msg, response = :raw, updated_at = now()
             where id = :id""";
+    static final String CANCEL_RESULT = """
+            update broker_order set status = :status, message = :msg, updated_at = now() where id = :id""";
     static final String FINISH = """
             update broker_dispatch set status = :status, message = :msg, updated_at = now() where id = :id""";
     static final String SUBMITTED_ON = """
@@ -42,13 +47,17 @@ public class JdbcDispatchStore implements DispatchStore {
     }
 
     @Override
-    public Optional<String> status(long planId, Mode mode) {
-        return jdbc.sql(STATUS).param("plan", planId).param("mode", mode.name()).query(String.class).optional();
+    public List<Attempt> attempts(long planId, Mode mode) {
+        return jdbc.sql(ATTEMPTS).param("plan", planId).param("mode", mode.name())
+                .query((rs, n) -> new Attempt(rs.getLong("id"), Phase.valueOf(rs.getString("phase")),
+                        rs.getString("status"), rs.getObject("day", LocalDate.class)))
+                .list();
     }
 
     @Override
-    public Optional<Long> start(long planId, Mode mode) {
-        return jdbc.sql(START).param("plan", planId).param("mode", mode.name()).query(Long.class).optional();
+    public Optional<Long> start(long planId, Mode mode, Phase phase) {
+        return jdbc.sql(START).param("plan", planId).param("mode", mode.name()).param("phase", phase.name())
+                .query(Long.class).optional();
     }
 
     @Override
@@ -66,6 +75,12 @@ public class JdbcDispatchStore implements DispatchStore {
                 .param("rt", r == null ? null : r.rtCd()).param("msgCd", r == null ? null : r.msgCd())
                 .param("msg", r == null ? null : r.message()).param("raw", r == null ? null : r.raw())
                 .update();
+    }
+
+    @Override
+    public void cancelResult(long orderId, String status, KisClient.Reply r) {
+        jdbc.sql(CANCEL_RESULT).param("id", orderId).param("status", status)
+                .param("msg", "취소: " + (r == null ? "" : r.summary())).update();
     }
 
     @Override
