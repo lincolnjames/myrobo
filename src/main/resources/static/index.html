@@ -5,154 +5,253 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>myrobo · 내 포트폴리오</title>
 <style>
+  /* 색: 매수·상승은 빨강, 매도·하락은 파랑 (국내 증권 앱 관례). 종목 색은 검증한 범주형 팔레트(라이트·다크 각각) */
   :root {
-    --bg: #f6f7f9; --card: #fff; --ink: #1b1f24; --muted: #66707c; --line: #e3e6ea;
-    --accent: #2563eb; --ok: #15803d; --ok-bg: #e8f6ed; --warn: #b45309; --warn-bg: #fdf3e2;
-    --bad: #b91c1c; --bad-bg: #fdecec;
+    color-scheme: light;
+    --bg: #f2f4f6; --card: #fff; --ink: #191f28; --ink-2: #4e5968; --muted: #8b95a1; --line: #e5e8eb;
+    --soft: #f2f4f6; --accent: #3182f6; --btn: #2272eb;
+    --up: #d92d3a; --up-bg: #fdecee; --down: #1f63d6; --down-bg: #e8f0fd;
+    --ok: #15803d; --ok-bg: #e8f6ed; --warn: #a15c07; --warn-bg: #fdf3e2; --bad: #b91c1c; --bad-bg: #fdecec;
+    --s-vti: #6250d6; --s-schr: #1baf7a; --s-gldm: #eda100; --s-bil: #e87ba4; --s-cash: #c3c2b7; --s-other: #898781;
+    --grid: #eceef0; --axis: #c9cdd2;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #111418; --card: #1a1e24; --ink: #e8eaed; --muted: #9aa3ad; --line: #2c323a;
-      --accent: #7aa2ff; --ok: #4ade80; --ok-bg: #12301f; --warn: #fbbf24; --warn-bg: #33270e;
-      --bad: #f87171; --bad-bg: #3a1717;
+      color-scheme: dark;
+      --bg: #101215; --card: #1a1e24; --ink: #eceef1; --ink-2: #b5bcc6; --muted: #8a939e; --line: #2a3038;
+      --soft: #22272e; --accent: #6ea8ff; --btn: #2f6fe0;
+      --up: #ff6b72; --up-bg: #3a1a1d; --down: #6ea8ff; --down-bg: #172742;
+      --ok: #4ade80; --ok-bg: #12301f; --warn: #fbbf24; --warn-bg: #33270e; --bad: #f87171; --bad-bg: #3a1717;
+      --s-vti: #9085e9; --s-schr: #199e70; --s-gldm: #c98500; --s-bil: #d55181; --s-cash: #4b5260; --s-other: #898781;
+      --grid: #262b32; --axis: #3a414a;
     }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
-         font: 15px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
-  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  h2 { font-size: 16px; margin: 0 0 12px; }
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 20px 14px 64px; }
+  h2 { font-size: 18px; margin: 0; }
+  .num { font-variant-numeric: tabular-nums; }
   .meta { color: var(--muted); font-size: 13px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-top: 16px; }
-  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-  .stat .label { color: var(--muted); font-size: 13px; }
-  .stat .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .notice { border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-size: 14px; }
+  .muted { color: var(--muted); }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+  .card { background: var(--card); border-radius: 18px; padding: 20px; margin-top: 12px; }
+  .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+
+  /* 총자산 */
+  .brand { display: flex; justify-content: space-between; align-items: center; padding: 4px 6px 0; }
+  .brand strong { font-size: 17px; }
+  .hero .label { color: var(--ink-2); font-size: 14px; }
+  .hero .total { font-size: 34px; font-weight: 700; letter-spacing: -0.5px; margin: 2px 0; }
+  .hero .sub { color: var(--muted); font-size: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .chip { background: var(--soft); border-radius: 10px; padding: 8px 12px; font-size: 13px; color: var(--ink-2); }
+  .chip b { display: block; font-size: 15px; color: var(--ink); }
+  .chip b.up { color: var(--up); }
+  .chip b.down { color: var(--down); }
+
+  .notice { border-radius: 12px; padding: 10px 14px; margin-top: 10px; font-size: 14px; }
   .notice.warn { background: var(--warn-bg); color: var(--warn); }
   .notice.bad { background: var(--bad-bg); color: var(--bad); }
   .notice.ok { background: var(--ok-bg); color: var(--ok); }
-  .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
-  th:first-child, td:first-child { text-align: left; }
-  th { color: var(--muted); font-weight: 500; font-size: 13px; }
-  .badge { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; }
+  ul.errors { margin: 6px 0 0; padding-left: 18px; }
+
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 12px; font-weight: 600; white-space: nowrap; }
   .badge.ok { background: var(--ok-bg); color: var(--ok); }
-  .badge.bad { background: var(--bad-bg); color: var(--bad); }
-  .muted { color: var(--muted); }
-  form .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
-  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-  input { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
-          background: var(--bg); color: var(--ink); font: inherit; }
-  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  #lines input { min-width: 90px; }
-  .row-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-  button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line);
-           background: var(--card); color: var(--ink); cursor: pointer; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button:disabled { opacity: .6; cursor: default; }
-  ul.errors { margin: 8px 0 0; padding-left: 18px; }
-  .foot { margin-top: 24px; font-size: 13px; color: var(--muted); }
-  .plan-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin-top: 12px; }
-  .plan-head strong { font-size: 16px; }
   .badge.warn { background: var(--warn-bg); color: var(--warn); }
-  .badge.muted { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
-  ul.checks { list-style: none; margin: 10px 0 0; padding: 0; font-size: 14px; }
-  ul.checks li { padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .badge.bad { background: var(--bad-bg); color: var(--bad); }
+  .badge.muted { background: var(--soft); color: var(--muted); }
+
+  /* 종목 아이콘 */
+  .avatar { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+            color: #fff; font-weight: 700; font-size: 12px; letter-spacing: -0.3px; background: var(--s-other); }
+  .avatar.cash { color: var(--ink); }
+  .avatar.long { font-size: 10px; letter-spacing: -0.5px; }
+
+  /* 오늘 할 일: 주문표 */
+  .step { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 16px 0 6px; }
+  .ticket { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .ticket:last-child { border-bottom: 0; }
+  .ticket .body { flex: 1; min-width: 0; }
+  .ticket .title { font-weight: 600; }
+  .ticket .title .name { font-weight: 400; color: var(--ink-2); margin-left: 4px; }
+  .ticket .detail { color: var(--muted); font-size: 13px; }
+  .ticket .amount { text-align: right; }
+  .ticket .amount b { display: block; font-size: 16px; }
+  .side { display: inline-block; font-size: 13px; font-weight: 700; border-radius: 8px; padding: 4px 10px; }
+  .side.buy { background: var(--up-bg); color: var(--up); }
+  .side.sell { background: var(--down-bg); color: var(--down); }
+  .side.fx { background: var(--soft); color: var(--ink-2); }
+  .totals { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; padding: 12px 14px; background: var(--soft);
+            border-radius: 12px; font-size: 14px; }
+  .totals span b { margin-left: 6px; }
+  .plan-sub { color: var(--ink-2); font-size: 14px; }
+  .empty { text-align: center; padding: 18px 0 6px; color: var(--ink-2); }
+  .empty b { display: block; font-size: 17px; color: var(--ink); margin-bottom: 4px; }
+
+  details > summary { cursor: pointer; list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+  details.fold > summary { padding: 10px 0; color: var(--ink-2); font-size: 14px; }
+  details.fold > summary::after { content: " ▾"; color: var(--muted); }
+  details.fold[open] > summary::after { content: " ▴"; }
+  details.fold > summary.bad { color: var(--bad); font-weight: 600; }
+  ul.checks { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+  ul.checks li { padding: 5px 0; border-bottom: 1px solid var(--line); }
   ul.checks .mark { display: inline-block; width: 1.4em; font-weight: 700; }
   ul.checks .pass .mark { color: var(--ok); }
-  ul.checks .fail .mark { color: var(--bad); }
-  ul.checks .fail { color: var(--bad); }
-  tr.fx td { color: var(--muted); }
-  summary { cursor: pointer; }
+  ul.checks .fail, ul.checks .fail .mark { color: var(--bad); }
+
+  /* 보유 종목 */
+  details.holding { border-bottom: 1px solid var(--line); }
+  details.holding:last-of-type { border-bottom: 0; }
+  details.holding > summary { padding: 14px 0 0; }
+  .holding .row { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; }
+  .holding .body { flex: 1; min-width: 0; }
+  .holding .title { font-weight: 600; }
+  .holding .title .name { font-weight: 400; color: var(--ink-2); margin-left: 4px; }
+  .holding .detail { color: var(--muted); font-size: 13px; }
+  .holding .amount { text-align: right; }
+  .holding .amount b { display: block; font-size: 16px; }
+  .weight { padding: 0 0 12px 52px; }
+  .bar { position: relative; height: 8px; border-radius: 4px; background: var(--soft); }
+  .bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+  .bar .target { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); border-radius: 1px; }
+  .weight .legend { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+  .about { padding: 0 0 14px 52px; font-size: 14px; color: var(--ink-2); }
+  .about p { margin: 0 0 4px; }
+
+  /* 자산 배분: 분할 막대 */
+  .alloc-row { display: grid; grid-template-columns: 36px 1fr; align-items: center; gap: 10px; margin-top: 10px; }
+  .alloc-row .lbl { font-size: 13px; color: var(--ink-2); }
+  .seg { display: flex; gap: 2px; height: 14px; }
+  .seg div { height: 100%; min-width: 2px; }
+  .seg div:first-child { border-radius: 4px 0 0 4px; }
+  .seg div:last-child { border-radius: 0 4px 4px 0; }
+  .seg div:only-child { border-radius: 4px; }
+  .keys { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 14px; font-size: 13px; color: var(--ink-2); }
+  .keys span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+                       margin-right: 6px; vertical-align: -1px; background: var(--c); }
+
+  /* 수익률 추이 */
+  .chart { position: relative; margin-top: 6px; }
+  .chart svg { display: block; width: 100%; height: 180px; overflow: visible; }
+  .chart text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink); color: var(--card); border-radius: 8px;
+         padding: 6px 10px; font-size: 12px; white-space: nowrap; transform: translate(-50%, -110%); display: none; }
+
+  /* 표·입력 */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
+  th, td { padding: 8px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  form .grid, .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  input { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px;
+          background: var(--bg); color: var(--ink); font: inherit; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  #lines input, #execForm td input { min-width: 80px; }
+  .row-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  button, .btn { font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 10px; border: 0;
+                 background: var(--soft); color: var(--ink); cursor: pointer; }
+  button.primary, .btn.primary { background: var(--btn); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  details.exec { margin-top: 14px; }
+  details.exec > summary.btn { display: block; text-align: center; }
+  details.exec[open] > summary.btn { background: var(--soft); color: var(--ink); }
+  .foot { margin: 20px 6px 0; font-size: 13px; color: var(--muted); }
 </style>
 </head>
 <body>
 <main>
-  <h1>내 포트폴리오</h1>
-  <div class="meta" id="meta">불러오는 중…</div>
-  <div id="notices"></div>
+  <div class="brand"><strong>myrobo</strong><span class="meta" id="meta">불러오는 중…</span></div>
 
-  <section class="card">
-    <div class="summary" id="summary"></div>
+  <section class="card hero" aria-label="총자산">
+    <div class="label">총자산</div>
+    <div class="total" id="total">–</div>
+    <div class="sub num" id="totalSub"></div>
+    <div class="chips" id="chips"></div>
+    <div id="notices"></div>
   </section>
 
-  <section class="card">
-    <h2>평가액과 낙폭</h2>
-    <div class="meta" id="valMeta">불러오는 중…</div>
-    <div class="summary" id="valSummary" style="margin-top:12px"></div>
+  <section class="card" aria-labelledby="todoTitle">
+    <div class="card-head"><h2 id="todoTitle">오늘 할 일</h2><span class="meta" id="planSchedule"></span></div>
+    <div id="planOpen"></div>
+    <div id="planMessage"></div>
+    <div id="planChecks"></div>
+    <div class="row-actions">
+      <button type="button" id="makePlan">주문안 다시 계산</button>
+      <span class="meta" id="makePlanHint" style="align-self:center"></span>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="holdTitle">
+    <div class="card-head"><h2 id="holdTitle">보유 종목</h2><span class="meta">눌러서 종목 설명 보기 · 세로선이 목표 비중</span></div>
+    <div id="holdings"></div>
+    <div id="excluded" class="meta"></div>
+  </section>
+
+  <section class="card" aria-labelledby="allocTitle">
+    <div class="card-head"><h2 id="allocTitle">자산 배분</h2><span class="meta">현재와 목표</span></div>
+    <div id="alloc"></div>
+  </section>
+
+  <section class="card" aria-labelledby="valTitle">
+    <div class="card-head"><h2 id="valTitle">누적 수익률</h2><span class="meta" id="valMeta"></span></div>
+    <div id="valChart"></div>
     <div id="valNotice"></div>
-    <details style="margin-top:14px">
-      <summary class="meta">최근 기록</summary>
+    <details class="fold">
+      <summary>낙폭 경보 기준과 최근 기록</summary>
+      <p class="meta" id="valRule" style="margin-top:0"></p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>날짜</th><th>평가액</th><th>수익률</th><th>지수</th><th>고점 대비</th><th>단계</th></tr></thead>
+          <thead><tr><th>날짜</th><th>평가액</th><th>직전 대비</th><th>지수</th><th>고점 대비</th><th>단계</th></tr></thead>
           <tbody id="valHistory"></tbody>
         </table>
       </div>
     </details>
   </section>
 
-  <section class="card">
-    <h2>목표 대비 비중</h2>
+  <section class="card" aria-labelledby="histTitle">
+    <div class="card-head"><h2 id="histTitle">주문안 기록</h2><span class="meta">폐기된 계산도 여기 남아요</span></div>
     <div class="table-wrap">
       <table>
-        <thead>
-          <tr><th>종목</th><th>보유</th><th>종가</th><th>평가액</th><th>현재</th><th>목표</th><th>차이</th><th>허용</th><th>상태</th></tr>
-        </thead>
-        <tbody id="weights"></tbody>
+        <thead><tr><th>번호</th><th>주문일</th><th>종류</th><th>상태</th><th>이유</th><th>크기</th></tr></thead>
+        <tbody id="planHistory"></tbody>
       </table>
     </div>
-    <div id="excluded" class="meta"></div>
   </section>
 
-  <section class="card">
-    <h2>주문안</h2>
-    <div class="meta" id="planSchedule"></div>
-    <div id="planOpen"></div>
-    <div class="row-actions">
-      <button type="button" class="primary" id="makePlan">주문안 만들기</button>
-    </div>
-    <div id="planMessage"></div>
-    <div id="planChecks"></div>
-    <details id="planHistoryBox" style="margin-top:14px">
-      <summary class="meta">최근 주문안</summary>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>번호</th><th>주문일</th><th>종류</th><th>상태</th><th>이유</th><th>크기</th></tr></thead>
-          <tbody id="planHistory"></tbody>
-        </table>
-      </div>
+  <section class="card" aria-labelledby="formTitle">
+    <details id="formBox">
+      <summary class="card-head" style="margin:0"><h2 id="formTitle">잔고 입력</h2><span class="meta">증권사 앱 잔고를 그대로 ▾</span></summary>
+      <p class="meta">증권사 앱에 보이는 그대로 입력하세요. 같은 날짜로 다시 저장하면 그날 기록을 통째로 바꿉니다.</p>
+      <form id="form" novalidate>
+        <div class="grid">
+          <div><label for="asOf">기준일</label><input type="date" id="asOf" required></div>
+          <div><label for="cashKrw">원화 현금 (원)</label><input id="cashKrw" inputmode="numeric" placeholder="0"></div>
+          <div><label for="cashUsd">달러 현금 ($)</label><input id="cashUsd" inputmode="decimal" placeholder="0.00"></div>
+        </div>
+        <div class="table-wrap" style="margin-top:16px">
+          <table>
+            <thead><tr><th>종목</th><th>보유 수량 (주)</th><th>평균 단가 ($, 선택)</th></tr></thead>
+            <tbody id="lines"></tbody>
+          </table>
+        </div>
+        <div class="row-actions">
+          <button type="button" id="addLine">+ 종목 추가</button>
+          <button type="submit" class="primary" id="save">저장</button>
+        </div>
+        <div id="formMessage"></div>
+      </form>
     </details>
   </section>
 
-  <section class="card">
-    <h2>잔고 입력</h2>
-    <p class="meta" style="margin-top:-6px">증권사 앱에 보이는 그대로 입력하세요. 같은 날짜로 다시 저장하면 그날 기록을 통째로 바꿉니다.</p>
-    <form id="form" novalidate>
-      <div class="grid">
-        <div><label for="asOf">기준일</label><input type="date" id="asOf" required></div>
-        <div><label for="cashKrw">원화 현금 (원)</label><input id="cashKrw" inputmode="numeric" placeholder="0"></div>
-        <div><label for="cashUsd">달러 현금 ($)</label><input id="cashUsd" inputmode="decimal" placeholder="0.00"></div>
-      </div>
-      <div class="table-wrap" style="margin-top:16px">
-        <table>
-          <thead><tr><th>종목</th><th>보유 수량 (주)</th><th>평균 단가 ($, 선택)</th></tr></thead>
-          <tbody id="lines"></tbody>
-        </table>
-      </div>
-      <div class="row-actions">
-        <button type="button" id="addLine">+ 종목 추가</button>
-        <button type="submit" class="primary" id="save">저장</button>
-      </div>
-      <div id="formMessage"></div>
-    </form>
-  </section>
-
-  <p class="foot">비중 계산과 이탈 판정은 리밸런싱 엔진과 같은 규칙(5/25, 현금 버퍼 1%)을 씁니다.
-    주문은 안전 검증을 모두 통과한 <strong>발송</strong> 상태 주문안대로만 넣으세요. 폐기된 계산이나 위쪽 비중 표만 보고 주문하지 마세요.</p>
+  <p class="foot">주문은 안전 검증을 모두 통과한 <strong>발송</strong> 상태 주문안대로만 넣으세요. 폐기된 계산이나 비중 막대만 보고 주문하지 마세요.
+    비중 판정은 리밸런싱 엔진과 같은 규칙(5/25, 현금 버퍼 1%)을 씁니다.</p>
 </main>
+<div class="tip" id="tip" role="status"></div>
 <script src="app.js"></script>
 </body>
 </html>
