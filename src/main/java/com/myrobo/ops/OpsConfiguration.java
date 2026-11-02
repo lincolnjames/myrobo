@@ -6,6 +6,7 @@ import com.myrobo.plan.PlanService;
 import com.myrobo.valuation.ValuationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -17,6 +18,7 @@ import javax.sql.DataSource;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.LocalTime;
+import java.util.List;
 
 /** 운영 모듈 조립: 알림 통로와 매일 작업. 클래스들은 Spring을 모르고 여기서만 엮는다. */
 @Configuration
@@ -87,18 +89,26 @@ public class OpsConfiguration {
     }
 
     /**
-     * 기동하고 잠시 뒤, 오늘 몫을 놓쳤으면 한 번 따라잡는다. 수집·자동 주문안이 꺼져 있으면 매일 작업은 하지 않는다.
-     * 백업은 최근 성공이 없을 때 따라잡는다. 둘은 서로 영향을 주지 않도록 따로 감싼다.
+     * 주기 확인(기본 10분): 오늘 몫을 놓쳤으면 따라잡고, 다른 모듈의 주기 작업(증권사 전송 등)을 돌린다.
+     * 수집·자동 주문안이 꺼져 있으면 매일 작업은 따라잡지 않는다.
      */
     @Bean
-    ApplicationListener<ApplicationReadyEvent> catchUpOnStartup(
-            DailyJob daily, BackupJob backup, JobRuns jobRuns, CollectorProperties collectorProps,
-            @Value("${robo.daily.auto-plan:true}") boolean autoPlan,
-            @Value("${robo.daily.catch-up:true}") boolean catchUp,
-            @Value("${robo.daily.catch-up-after:08:10}") LocalTime after,
-            @Value("${robo.daily.catch-up-delay-seconds:60}") long delaySeconds) {
+    Ticker ticker(DailyJob daily, JobRuns jobRuns, CollectorProperties collectorProps, ObjectProvider<Periodic> periodic,
+                  @Value("${robo.daily.auto-plan:true}") boolean autoPlan,
+                  @Value("${robo.daily.catch-up:true}") boolean catchUp,
+                  @Value("${robo.daily.catch-up-after:08:10}") LocalTime after) {
+        List<Periodic> tasks = periodic.orderedStream().toList();
         var task = new CatchUp(daily::run, jobRuns, Clock.systemUTC(), after,
                 catchUp && autoPlan && collectorProps.enabled());
+        log.info("주기 확인 켜짐: 따라잡기 {}, 주기 작업 {}", catchUp && autoPlan && collectorProps.enabled() ? "켜짐" : "꺼짐",
+                tasks.stream().map(Periodic::name).toList());
+        return new Ticker(task, tasks);
+    }
+
+    /** 기동하고 잠시 뒤, 최근 성공한 백업이 없으면 한 번 따라잡는다 (주 1회 작업이라 기동 때만 본다). */
+    @Bean
+    ApplicationListener<ApplicationReadyEvent> backupCatchUpOnStartup(
+            BackupJob backup, @Value("${robo.daily.catch-up-delay-seconds:60}") long delaySeconds) {
         return event -> {
             Thread t = new Thread(() -> {
                 try {
@@ -108,16 +118,11 @@ public class OpsConfiguration {
                     return;
                 }
                 try {
-                    task.runIfMissed();
-                } catch (RuntimeException e) {
-                    log.error("놓친 작업 따라잡기 실패", e);
-                }
-                try {
                     backup.catchUpIfStale(Clock.systemUTC());
                 } catch (RuntimeException e) {
                     log.error("놓친 백업 따라잡기 실패", e);
                 }
-            }, "catch-up");
+            }, "backup-catch-up");
             t.setDaemon(true);
             t.start();
         };
