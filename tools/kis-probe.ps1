@@ -8,12 +8,15 @@
 #   2. 해외주식 잔고 (NASD·NYSE·AMEX 각각) / 체결기준 현재잔고 (달러 예수금)
 #   3. 코어 ETF 현재가와 맞는 거래소 코드 (AMS·NYS·NAS 순서로 시도)
 #   4. 매수가능금액 (VTI 1주 기준. 모의 계좌 달러 예수금이 0이라 원화로 살 수 있는지 확인)
+#   5. 주문체결내역 (예약주문이 장 시작에 실제 주문으로 나간 뒤의 체결·미체결. 기본: 최근 3일)
 #
 # 실행:  powershell -ExecutionPolicy Bypass -File C:\Users\User\myrobo\tools\kis-probe.ps1
 #        4번만:  ... kis-probe.ps1 -BuyableOnly
+#        잔고(2)와 체결내역(5)만:  ... kis-probe.ps1 -FillsOnly   (기간: -FillsFrom 20261102 -FillsTo 20261103)
 # 요청 형식 출처: github.com/koreainvestment/open-trading-api (kis_devlp.yaml, examples_llm/overseas_stock)
 
-param([string]$ConfigScript = "$env:USERPROFILE\Desktop\myrobo-run.ps1", [switch]$BuyableOnly)
+param([string]$ConfigScript = "$env:USERPROFILE\Desktop\myrobo-run.ps1", [switch]$BuyableOnly, [switch]$FillsOnly,
+      [string]$FillsFrom = (Get-Date).AddDays(-3).ToString('yyyyMMdd'), [string]$FillsTo = (Get-Date).ToString('yyyyMMdd'))
 
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -101,7 +104,9 @@ $r = Get-Kis '/uapi/overseas-stock/v1/trading/inquire-present-balance' 'VTRP6504
     CANO = $Cano; ACNT_PRDT_CD = $Prdt; WCRC_FRCR_DVSN_CD = '02'; NATN_CD = '840'; TR_MKET_CD = '00'; INQR_DVSN_CD = '00' }
 Show-Result '2-현재잔고. 체결기준 현재잔고 (VTRP6504R, 외화·미국)' $r
 if ($r.json) { Show-Outputs $r }
+}
 
+if (-not $BuyableOnly -and -not $FillsOnly) {
 # ── 3. 시세와 거래소 코드 ──
 Write-Host ''
 Write-Host '── 3. 코어 ETF 현재가 (HHDFS00000300) ──'
@@ -123,6 +128,7 @@ foreach ($sym in 'VTI', 'SCHR', 'GLDM', 'BIL') {
 }
 }
 
+if (-not $FillsOnly) {
 # ── 4. 매수가능금액 ──
 # 시세 조회 거래소 코드는 AMS였지만 주문·잔고 계열은 NASD/NYSE/AMEX를 쓴다. ETF가 어느 쪽으로 받아지는지도 같이 본다
 foreach ($ex in 'AMEX', 'NYSE', 'NASD') {
@@ -130,6 +136,39 @@ foreach ($ex in 'AMEX', 'NYSE', 'NASD') {
         CANO = $Cano; ACNT_PRDT_CD = $Prdt; OVRS_EXCG_CD = $ex; OVRS_ORD_UNPR = '371.57'; ITEM_CD = 'VTI' }
     Show-Result "4-$ex. 매수가능금액 (VTTS3007R, VTI 1주 371.57)" $r
     if ($r.json) { Show-Outputs $r }
+}
+}
+
+if (-not $BuyableOnly) {
+# ── 5. 주문체결내역 ──
+# 모의 계좌는 종목·거래소·매수매도·체결구분 필터와 주문번호 조회가 안 된다 → 전체("" / "00")로 받는다.
+# 예약주문 번호(ODNO 267~269 같은)와 장 시작에 나간 실제 주문 번호가 같은지도 여기서 본다.
+# 다음 쪽이 있으면 응답 헤더 tr_cont가 M/F → 요청 헤더 tr_cont=N과 CTX 값으로 이어 받는다 (최대 5쪽)
+$ctxFk = ''; $ctxNk = ''; $page = 1; $rows = @()
+while ($true) {
+    Start-Sleep -Milliseconds 1100
+    $h = $auth + @{ tr_id = 'VTTS3035R' }
+    if ($page -gt 1) { $h.tr_cont = 'N' }
+    $r = Invoke-Kis 'GET' '/uapi/overseas-stock/v1/trading/inquire-ccnl' $h @{
+        CANO = $Cano; ACNT_PRDT_CD = $Prdt; PDNO = ''; ORD_STRT_DT = $FillsFrom; ORD_END_DT = $FillsTo
+        SLL_BUY_DVSN = '00'; CCLD_NCCS_DVSN = '00'; OVRS_EXCG_CD = ''; SORT_SQN = 'DS'
+        ORD_DT = ''; ORD_GNO_BRNO = ''; ODNO = ''; CTX_AREA_FK200 = $ctxFk; CTX_AREA_NK200 = $ctxNk } $null
+    Show-Result "5-$page. 주문체결내역 (VTTS3035R, $FillsFrom~$FillsTo)" $r
+    if (-not $r.json) { break }
+    Show-Outputs $r
+    if ($r.json.output) { $rows += @($r.json.output) }
+    if ($r.trCont -notin 'M', 'F' -or $page -ge 5) { break }
+    $ctxFk = $r.json.ctx_area_fk200; $ctxNk = $r.json.ctx_area_nk200; $page++
+}
+if ($rows.Count -gt 0) {
+    Write-Host ''
+    Write-Host '── 5-요약 (주문일·시각 / 주문번호(원주문) / 종목 / 매도매수 / 주문수량@단가 / 체결수량@단가 / 미체결 / 상태 / 거부사유) ──'
+    foreach ($o in $rows) {
+        Write-Host ("{0} {1} · {2}({3}) · {4} · {5} · {6}@{7} · 체결 {8}@{9} · 미체결 {10} · {11} · {12}" -f
+            $o.ord_dt, $o.ord_tmd, $o.odno, $o.orgn_odno, $o.pdno, $o.sll_buy_dvsn_cd_name,
+            $o.ft_ord_qty, $o.ft_ord_unpr3, $o.ft_ccld_qty, $o.ft_ccld_unpr3, $o.nccs_qty, $o.prcs_stat_name, $o.rjct_rson_name)
+    }
+}
 }
 
 Write-Host ''
