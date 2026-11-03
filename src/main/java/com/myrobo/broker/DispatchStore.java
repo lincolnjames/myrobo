@@ -1,9 +1,11 @@
 package com.myrobo.broker;
 
 import com.myrobo.broker.OrderPlanner.Order;
+import com.myrobo.broker.OrderPlanner.Side;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -38,4 +40,22 @@ public interface DispatchStore {
 
     /** 그 한국 날짜에 실제로 접수된(SUBMITTED) 주문 합계. 드라이런은 세지 않는다. */
     BigDecimal submittedUsdOn(LocalDate kstDay);
+
+    /**
+     * 증권사에서 실행됐을 수 있는 주문 줄: 접수됨(SUBMITTED)이나 취소 실패(CANCEL_FAILED) 중 체결 반영 전인 것.
+     *
+     * @param orderDate 접수한 한국 날짜 = 그 밤에 열리는 장의 뉴욕 날짜 = 체결내역의 주문일
+     */
+    record LiveOrder(long id, long itemId, Side side, String symbol, String exchange, long qty, BigDecimal limitPrice,
+                     LocalDate orderDate) {
+    }
+
+    List<LiveOrder> liveOrders(long planId, Mode mode);
+
+    /** 체결 반영 결과 한 줄. fillStatus: FILLED, PARTIAL, UNFILLED. 체결이 없으면 주문번호·가격·시각은 null. */
+    record FillRecord(long orderId, String fillStatus, String fillOrderNo, long filledQty, BigDecimal filledPrice,
+                      OffsetDateTime filledAt) {
+    }
+
+    void recordFills(List<FillRecord> fills);
 }

@@ -68,7 +68,7 @@ public class PlanService {
         long account = holdings.state().account();
         repo.lock(account);
         TradingSchedule sched = schedule();
-        repo.expireOverdue(account, sched.tradeDate());
+        repo.expireOverdue(account, sched.tradeDate(), sched.lastSession());
         PlanView open = repo.findOpen(account).flatMap(repo::load).orElse(null);
         return new Overview(sched, open, repo.recent(account, RECENT));
     }
@@ -82,7 +82,7 @@ public class PlanService {
         Instant now = clock.instant();
         TradingSchedule sched = schedule();
 
-        int expired = repo.expireOverdue(account, sched.tradeDate());
+        int expired = repo.expireOverdue(account, sched.tradeDate(), sched.lastSession());
         if (expired > 0) {
             log.info("유효 기간이 지난 주문안 {}건 만료 처리", expired);
         }

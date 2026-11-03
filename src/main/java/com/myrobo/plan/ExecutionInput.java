@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 /**
  * 화면에서 받은 체결 결과 (증권사 앱에서 실제로 체결된 그대로).
@@ -212,6 +213,30 @@ public record ExecutionInput(List<Fill> fills, Fx fx) {
             }
         });
         return new Applied(new SnapshotInput.Clean(asOf, List.copyOf(lines), krw, usd), List.of());
+    }
+
+    /**
+     * 체결을 반영한 새 잔고의 수량이 증권사 잔고와 종목마다 같은지. 다르면 어긋난 종목마다 한 줄.
+     * 현금은 대조하지 않는다 (모의 계좌는 달러 예수금 없이 원화로 사서 증권사 숫자와 맞출 수 없다).
+     */
+    public static List<String> qtyMismatches(SnapshotInput.Clean snapshot, Map<String, Long> brokerQty) {
+        Map<String, Long> ours = new TreeMap<>();
+        snapshot.holdings().forEach(l -> ours.put(l.symbol(), l.qty()));
+        Set<String> symbols = new TreeSet<>(ours.keySet());
+        brokerQty.forEach((s, q) -> {
+            if (q != 0) {
+                symbols.add(s);
+            }
+        });
+        List<String> out = new ArrayList<>();
+        for (String s : symbols) {
+            long a = ours.getOrDefault(s, 0L);
+            long b = brokerQty.getOrDefault(s, 0L);
+            if (a != b) {
+                out.add(s + ": 체결 반영 후 " + a + "주인데 증권사 잔고는 " + b + "주");
+            }
+        }
+        return out;
     }
 
     private static BigDecimal amount(Executed e) {

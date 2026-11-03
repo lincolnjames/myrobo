@@ -19,6 +19,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 체결 입력: 발송(SENT)된 주문안의 실제 체결·환전을 기록하고, 주문안을 DONE으로 닫고, 새 잔고를 만든다.
@@ -44,8 +45,27 @@ public class ExecutionService {
         this.clock = clock;
     }
 
+    /** 화면에서 입력한 체결. 체결 시각은 저장하는 시각. */
     @Transactional
     public ExecutionResult save(long planId, ExecutionInput input) {
+        return save(planId, input, Map.of(), null);
+    }
+
+    /**
+     * 증권사 주문체결내역으로 만든 체결. 화면 입력과 같은 규칙(SENT일 때만, 주문안 뒤 잔고 직접 입력이면 거부)에
+     * 더해, 반영 후 보유 수량이 증권사 잔고와 종목마다 같을 때만 저장한다.
+     *
+     * @param executedAt 주문 줄 id → 실제 주문 시각 (없는 줄은 저장 시각)
+     * @param brokerQty  증권사 잔고 종목 → 수량
+     */
+    @Transactional
+    public ExecutionResult saveFromBroker(long planId, ExecutionInput input, Map<Long, OffsetDateTime> executedAt,
+                                          Map<String, Long> brokerQty) {
+        return save(planId, input, executedAt, brokerQty);
+    }
+
+    private ExecutionResult save(long planId, ExecutionInput input, Map<Long, OffsetDateTime> executedAt,
+                                 Map<String, Long> brokerQty) {
         State st = holdings.state();
         long account = st.account();
         repo.lock(account);
@@ -73,11 +93,18 @@ public class ExecutionService {
         if (!applied.ok()) {
             return invalid(applied.errors());
         }
+        if (brokerQty != null) {
+            List<String> mismatches = ExecutionInput.qtyMismatches(applied.snapshot(), brokerQty);
+            if (!mismatches.isEmpty()) {
+                return new ExecutionResult(ExecutionStatus.CONFLICT, "체결을 반영한 수량이 증권사 잔고와 달라 저장하지 않았어요.",
+                        mismatches, null, null);
+            }
+        }
 
         // 먼저 닫고(updated_at = 트랜잭션 시작 시각), 그 뒤에 잔고를 저장한다 (clock_timestamp로 더 늦은 시각)
         repo.transition(planId, "SENT", "DONE");
         OffsetDateTime at = OffsetDateTime.ofInstant(now, ZoneOffset.UTC);
-        checked.clean().executed().forEach(e -> repo.insertExecution(e, at));
+        checked.clean().executed().forEach(e -> repo.insertExecution(e, executedAt.getOrDefault(e.itemId(), at)));
         ExecutionInput.Fx fx = checked.clean().fx();
         FxCheck fxCheck = ExecutionInput.fxCheck(fx, plan.fxUsd(), plan.fxKrwEst());
         if (fx != null) {

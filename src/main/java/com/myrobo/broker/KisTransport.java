@@ -12,7 +12,16 @@ import java.util.Map;
 @FunctionalInterface
 public interface KisTransport {
 
-    record Response(int status, String body) {
+    /** @param headers 응답 헤더 중 쓰는 것만, 이름은 소문자 (조회의 다음 쪽 표시 tr_cont) */
+    record Response(int status, String body, Map<String, String> headers) {
+
+        public Response(int status, String body) {
+            this(status, body, Map.of());
+        }
+
+        public String header(String name) {
+            return headers.get(name.toLowerCase());
+        }
     }
 
     Response send(String method, URI uri, Map<String, String> headers, String body);

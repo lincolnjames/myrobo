@@ -259,6 +259,46 @@ class KisClientTest {
     }
 
     @Test
+    void readsTheRealPaperFillsAndPositions() {
+        var t = new FakeKis().on(TOKEN, TOKEN_OK).on(KisClient.FILLS_PATH, BrokerFixtures.CCNL_1102)
+                .on(KisClient.BALANCE_PATH, BrokerFixtures.BALANCE_AMEX);
+        KisClient c = client(t, new TestClock("2026-11-03T01:00:00Z"));
+
+        var fills = c.fills(java.time.LocalDate.of(2026, 11, 2), java.time.LocalDate.of(2026, 11, 3));
+        var positions = c.positions("AMEX");
+
+        assertEquals(new KisClient.Fill("20261102", "233003", "36617", "0", Side.BUY, "VTI", 26, d("375.29000000"),
+                26, d("373.43500000")), fills.get(0));
+        assertEquals(3, fills.size());
+        assertEquals(new KisClient.Position("VTI", "AMEX", 26, d("373.4350")), positions.get(2));
+        assertEquals("", t.to(KisClient.FILLS_PATH).get(0).headers().getOrDefault("tr_cont", ""));
+    }
+
+    @Test
+    void noRowsIsAnEmptyListNotAnError() {
+        var t = new FakeKis().on(TOKEN, TOKEN_OK).on(KisClient.BALANCE_PATH, BrokerFixtures.NO_ROWS);
+
+        assertTrue(client(t, new TestClock("2026-11-03T01:00:00Z")).positions("NYSE").isEmpty());
+    }
+
+    @Test
+    void fillsFollowTheNextPageMarker() {
+        String page1 = BrokerFixtures.CCNL_1102.replace("\"ctx_area_nk200\":\"\",\"ctx_area_fk200\":\"\"",
+                "\"ctx_area_nk200\":\"NK1\",\"ctx_area_fk200\":\"FK1\"");
+        var t = new FakeKis().on(TOKEN, TOKEN_OK).on(KisClient.FILLS_PATH,
+                new KisTransport.Response(200, page1, java.util.Map.of("tr_cont", "M")),
+                new KisTransport.Response(200, BrokerFixtures.CCNL_1102, java.util.Map.of("tr_cont", "D")));
+
+        var fills = client(t, new TestClock("2026-11-03T01:00:00Z"))
+                .fills(java.time.LocalDate.of(2026, 11, 2), java.time.LocalDate.of(2026, 11, 3));
+
+        assertEquals(6, fills.size());
+        Sent second = t.to(KisClient.FILLS_PATH).get(1);
+        assertEquals("N", second.headers().get("tr_cont"));
+        assertTrue(second.uri().getRawQuery().endsWith("CTX_AREA_FK200=FK1&CTX_AREA_NK200=NK1"), second.uri().getRawQuery());
+    }
+
+    @Test
     void liveUsesRealTrIds() {
         var c = new KisClient(new FakeKis(), KisClient.Env.LIVE, APP_KEY, APP_SECRET, ACCOUNT,
                 new TestClock("2026-11-02T03:00:00Z"), new RecordingSleeper());
