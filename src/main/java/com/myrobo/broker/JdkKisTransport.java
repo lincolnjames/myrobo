@@ -12,6 +12,8 @@ import java.util.Map;
 /** JDK HttpClient 구현. 다시 시도하지 않는다 (주문 중복 방지). 오류 메시지에는 호스트와 경로만 남긴다. */
 public final class JdkKisTransport implements KisTransport {
 
+    private static final String TR_CONT = "tr_cont";
+
     private final HttpClient client;
     private final Duration timeout;
 
@@ -31,7 +33,8 @@ public final class JdkKisTransport implements KisTransport {
         }
         try {
             HttpResponse<String> res = client.send(b.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            return new Response(res.statusCode(), res.body());
+            Map<String, String> kept = res.headers().firstValue(TR_CONT).map(v -> Map.of(TR_CONT, v)).orElse(Map.of());
+            return new Response(res.statusCode(), res.body(), kept);
         } catch (IOException e) {
             throw new KisException(uri.getHost() + uri.getPath() + " 연결 실패: " + e.getClass().getSimpleName(), e);
         } catch (InterruptedException e) {

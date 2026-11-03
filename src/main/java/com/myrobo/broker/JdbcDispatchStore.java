@@ -1,6 +1,7 @@
 package com.myrobo.broker;
 
 import com.myrobo.broker.OrderPlanner.Order;
+import com.myrobo.broker.OrderPlanner.Side;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 import java.math.BigDecimal;
@@ -8,7 +9,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
-/** broker_dispatch·broker_order 저장 (V5, V6). */
+/** broker_dispatch·broker_order 저장 (V5, V6, V7). */
 public class JdbcDispatchStore implements DispatchStore {
 
     static final String ATTEMPTS = """
@@ -39,6 +40,18 @@ public class JdbcDispatchStore implements DispatchStore {
             join broker_dispatch d on d.id = o.dispatch_id
             where d.mode <> 'DRY_RUN' and o.status = 'SUBMITTED'
               and cast(o.created_at at time zone 'Asia/Seoul' as date) = :day""";
+    static final String LIVE_ORDERS = """
+            select o.id, o.plan_item_id, o.side, o.symbol, o.exchange, o.qty, o.limit_price,
+                   coalesce(to_date(o.broker_order_dt, 'YYYYMMDD'),
+                            cast(o.created_at at time zone 'Asia/Seoul' as date)) as day
+            from broker_order o join broker_dispatch d on d.id = o.dispatch_id
+            where d.plan_id = :plan and d.mode = :mode
+              and o.status in ('SUBMITTED', 'CANCEL_FAILED') and o.fill_status is null
+            order by o.id""";
+    static final String RECORD_FILL = """
+            update broker_order set fill_status = :status, fill_order_no = :no, filled_qty = :qty,
+                   filled_price = :price, filled_at = :at, updated_at = now()
+            where id = :id and fill_status is null""";
 
     private final JdbcClient jdbc;
 
@@ -91,5 +104,27 @@ public class JdbcDispatchStore implements DispatchStore {
     @Override
     public BigDecimal submittedUsdOn(LocalDate kstDay) {
         return jdbc.sql(SUBMITTED_ON).param("day", kstDay).query(BigDecimal.class).single();
+    }
+
+    @Override
+    public List<LiveOrder> liveOrders(long planId, Mode mode) {
+        return jdbc.sql(LIVE_ORDERS).param("plan", planId).param("mode", mode.name())
+                .query((rs, n) -> new LiveOrder(rs.getLong("id"), rs.getLong("plan_item_id"),
+                        Side.valueOf(rs.getString("side")), rs.getString("symbol"), rs.getString("exchange"),
+                        rs.getLong("qty"), rs.getBigDecimal("limit_price"), rs.getObject("day", LocalDate.class)))
+                .list();
+    }
+
+    /** 이미 반영된 줄은 건드리지 않는다. 한 줄이라도 안 바뀌면 예외 → 같은 트랜잭션의 체결 반영 전체가 되돌려진다. */
+    @Override
+    public void recordFills(List<FillRecord> fills) {
+        for (FillRecord f : fills) {
+            int n = jdbc.sql(RECORD_FILL).param("id", f.orderId()).param("status", f.fillStatus())
+                    .param("no", f.fillOrderNo()).param("qty", f.filledQty()).param("price", f.filledPrice())
+                    .param("at", f.filledAt()).update();
+            if (n != 1) {
+                throw new IllegalStateException("broker_order " + f.orderId() + "는 이미 체결 반영됨");
+            }
+        }
     }
 }

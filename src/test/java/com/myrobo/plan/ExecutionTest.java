@@ -233,6 +233,8 @@ class ExecutionTest {
     /** 호출을 순서대로 기록하는 가짜 저장소들. */
     private static final class Fakes {
         final List<String> calls = new ArrayList<>();
+        final List<OffsetDateTime> times = new ArrayList<>();
+        BigDecimal usd = d("0");
         String planStatus = "SENT";
         Instant balanceEnteredAt = PLAN_CREATED.minusSeconds(3600);
         long openPlanId = 5;
@@ -250,7 +252,7 @@ class ExecutionTest {
             @Override public Optional<Long> findOpen(long account) { return Optional.of(openPlanId); }
             @Override public Optional<PlanView> load(long id) { return Optional.of(plan()); }
             @Override public void transition(long id, String from, String to) { calls.add("transition " + from + ">" + to); }
-            @Override public void insertExecution(ExecutionInput.Executed e, OffsetDateTime at) { calls.add("execution " + e.symbol() + " " + e.qty()); }
+            @Override public void insertExecution(ExecutionInput.Executed e, OffsetDateTime at) { calls.add("execution " + e.symbol() + " " + e.qty()); times.add(at); }
         };
         final HoldingsRepository holdingsRepo = new HoldingsRepository(null) {
             @Override public void insertLedger(long a, LocalDate date, String type, String cur, BigDecimal amt, String memo) { calls.add("ledger " + type + " " + cur + " " + amt.toPlainString()); }
@@ -258,7 +260,7 @@ class ExecutionTest {
         };
         final HoldingsService holdings = new HoldingsService(null, null) {
             @Override public State state() {
-                return new State(1, TODAY.minusDays(1), balanceEnteredAt, HELD, new Cash(d("10000000"), d("0")), null, Map.of());
+                return new State(1, TODAY.minusDays(1), balanceEnteredAt, HELD, new Cash(d("10000000"), usd), null, Map.of());
             }
             @Override public PortfolioResponse view() { return null; }
         };
@@ -266,6 +268,63 @@ class ExecutionTest {
         ExecutionResult save(ExecutionInput in) {
             return new ExecutionService(holdings, holdingsRepo, plans, Clock.fixed(NOW, ZoneOffset.UTC)).save(5, in);
         }
+
+        ExecutionResult fromBroker(ExecutionInput in, Map<Long, OffsetDateTime> at, Map<String, Long> brokerQty) {
+            return new ExecutionService(holdings, holdingsRepo, plans, Clock.fixed(NOW, ZoneOffset.UTC))
+                    .saveFromBroker(5, in, at, brokerQty);
+        }
+    }
+
+    // ── 증권사 체결내역으로 저장 ──
+
+    private static final ExecutionInput BROKER = new ExecutionInput(
+            List.of(fill(1, 10, "373.01", null), fill(2, 0, null, null)), null);
+
+    /** HELD + 매수 VTI 10주. */
+    private static Map<String, Long> afterBroker() {
+        Map<String, Long> m = new java.util.HashMap<>();
+        HELD.forEach(p -> m.put(p.symbol(), p.qty()));
+        m.merge("VTI", 10L, Long::sum);
+        return m;
+    }
+
+    @Test
+    void brokerFillsAreSavedWithTheirOrderTimeWhenQuantitiesMatch() {
+        var f = new Fakes();
+        f.usd = d("5000");
+        OffsetDateTime ordered = OffsetDateTime.parse("2026-11-02T23:30:03+09:00");
+
+        ExecutionResult r = f.fromBroker(BROKER, Map.of(1L, ordered), afterBroker());
+
+        assertEquals(ExecutionStatus.SAVED, r.status(), r.errors().toString());
+        assertEquals(List.of("lock", "transition SENT>DONE", "execution VTI 10", "snapshot 2026-11-02"), f.calls);
+        assertEquals(List.of(ordered), f.times);
+    }
+
+    @Test
+    void brokerFillsAreNotSavedWhenTheBrokerHoldsADifferentQuantity() {
+        var f = new Fakes();
+        f.usd = d("5000");
+        Map<String, Long> broker = afterBroker();
+        broker.merge("VTI", 1L, Long::sum);   // 증권사 앱에서 1주 더 샀음
+        broker.put("QQQ", 3L);                // myrobo가 모르는 종목
+
+        ExecutionResult r = f.fromBroker(BROKER, Map.of(), broker);
+
+        assertEquals(ExecutionStatus.CONFLICT, r.status());
+        assertEquals(List.of("lock"), f.calls);
+        assertEquals(2, r.errors().size(), r.errors().toString());
+        assertTrue(r.errors().stream().anyMatch(e -> e.startsWith("QQQ: 체결 반영 후 0주인데 증권사 잔고는 3주")), r.errors().toString());
+    }
+
+    @Test
+    void brokerFillsFollowTheSameDoubleCountingRule() {
+        var f = new Fakes();
+        f.usd = d("5000");
+        f.balanceEnteredAt = PLAN_CREATED.plusSeconds(600);
+
+        assertEquals(ExecutionStatus.CONFLICT, f.fromBroker(BROKER, Map.of(), afterBroker()).status());
+        assertEquals(List.of("lock"), f.calls);
     }
 
     private static final ExecutionInput FULL = new ExecutionInput(

@@ -12,10 +12,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +64,13 @@ public final class KisClient {
      * 정정은 하지 않으므로 40830000도 "더 이상 살아 있는 예약이 아님"으로 본다. 그 밖의 코드는 실패로 둔다.
      */
     static final Set<String> CANCEL_DONE_CODES = Set.of("40720000", "40830000");
+    static final String FILLS_PATH = "/uapi/overseas-stock/v1/trading/inquire-ccnl";
+    static final String FILLS_TR = "TTTS3035R";
+    static final String BALANCE_PATH = "/uapi/overseas-stock/v1/trading/inquire-balance";
+    static final String BALANCE_TR = "TTTS3012R";
+    /** 조회 결과가 없을 때의 응답 코드 (2026-11-03 모의 잔고 조회: rt_cd=0, "조회할 내역(자료)이 없습니다"). */
+    static final String NO_DATA = "70070000";
+    static final int MAX_PAGES = 10;
 
     /** 앞 요청의 응답을 받은 뒤 다음 요청까지 쉬는 시간. 보낸 시각부터 재면 응답이 느릴 때 서버에 붙어서 도착한다 (2026-11-02 EGW00201). */
     static final Duration PACE = Duration.ofMillis(1100);
@@ -72,6 +81,7 @@ public final class KisClient {
     static final Duration TOKEN_REFRESH_BEFORE = Duration.ofHours(1);
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
     private static final DateTimeFormatter EXPIRY = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter YMD = DateTimeFormatter.BASIC_ISO_DATE;
     private static final Pattern ACCOUNT = Pattern.compile("^(\\d{8})-?(\\d{2})$");
 
     /** 응답 한 건. rt_cd가 "0"이면 성공. output은 응답의 output 객체(없으면 빈 맵). */
@@ -98,6 +108,21 @@ public final class KisClient {
 
     /** 매수 가능 금액 (모의 응답에서 확인한 필드: ord_psbl_frcr_amt, max_ord_psbl_qty). */
     public record Buyable(BigDecimal orderableUsd, long maxQty) {
+    }
+
+    /**
+     * 주문체결내역 한 줄 (2026-11-03 모의 응답에서 확인한 필드). 예약주문은 장 시작에 새 주문번호로 나가므로
+     * orderNo는 예약 접수 때의 번호와 다르다 (예약 267 → 주문 36617). orderDate는 주문이 나간 한국 날짜.
+     *
+     * @param side        매도·매수가 아닌 구분이면 null
+     * @param filledPrice 체결 평균 단가 (체결이 없으면 0)
+     */
+    public record Fill(String orderDate, String orderTime, String orderNo, String originalOrderNo, Side side,
+                       String symbol, long orderQty, BigDecimal orderPrice, long filledQty, BigDecimal filledPrice) {
+    }
+
+    /** 해외주식 잔고 한 종목 (ovrs_pdno, ovrs_excg_cd, ovrs_cblc_qty, pchs_avg_pric). */
+    public record Position(String symbol, String exchange, long qty, BigDecimal avgPrice) {
     }
 
     private final KisTransport transport;
@@ -183,6 +208,97 @@ public final class KisClient {
         return call("POST", CANCEL_PATH, trId(CANCEL_TR), null, body);
     }
 
+    /**
+     * 주문체결내역 (한국 날짜 from~to, 주문일 기준). 모의 계좌는 종목·거래소·매수매도·체결구분 필터와 주문번호 조회가
+     * 안 되므로("" / "00"만 가능) 전체를 받는다. 다음 쪽이 있으면(응답 헤더 tr_cont M·F) 이어 받는다.
+     */
+    public synchronized List<Fill> fills(LocalDate from, LocalDate to) {
+        String all = env == Env.PAPER ? "" : "%";
+        List<Fill> out = new ArrayList<>();
+        String fk = "";
+        String nk = "";
+        for (int page = 0; page < MAX_PAGES; page++) {
+            Map<String, String> q = new LinkedHashMap<>();
+            q.put("CANO", cano);
+            q.put("ACNT_PRDT_CD", productCode);
+            q.put("PDNO", all);
+            q.put("ORD_STRT_DT", from.format(YMD));
+            q.put("ORD_END_DT", to.format(YMD));
+            q.put("SLL_BUY_DVSN", "00");
+            q.put("CCLD_NCCS_DVSN", "00");
+            q.put("OVRS_EXCG_CD", all);
+            q.put("SORT_SQN", "DS");
+            q.put("ORD_DT", "");
+            q.put("ORD_GNO_BRNO", "");
+            q.put("ODNO", "");
+            q.put("CTX_AREA_FK200", fk);
+            q.put("CTX_AREA_NK200", nk);
+            Page p = page(FILLS_PATH, trId(FILLS_TR), q, page > 0, "주문체결내역 조회");
+            try {
+                rows(p.body().get("output")).forEach(r -> out.add(fill(r)));
+            } catch (RuntimeException e) {
+                throw new KisException("주문체결내역 응답을 읽을 수 없음", e);
+            }
+            if (!p.more()) {
+                return out;
+            }
+            fk = str(p.body().get("ctx_area_fk200"));
+            nk = str(p.body().get("ctx_area_nk200"));
+        }
+        throw new KisException("주문체결내역이 " + MAX_PAGES + "쪽을 넘음");
+    }
+
+    /** 이 거래소 코드(AMEX 등)로 조회한 해외주식 잔고 (output1). */
+    public synchronized List<Position> positions(String exchange) {
+        List<Position> out = new ArrayList<>();
+        String fk = "";
+        String nk = "";
+        for (int page = 0; page < MAX_PAGES; page++) {
+            Map<String, String> q = new LinkedHashMap<>();
+            q.put("CANO", cano);
+            q.put("ACNT_PRDT_CD", productCode);
+            q.put("OVRS_EXCG_CD", exchange);
+            q.put("TR_CRCY_CD", "USD");
+            q.put("CTX_AREA_FK200", fk);
+            q.put("CTX_AREA_NK200", nk);
+            Page p = page(BALANCE_PATH, trId(BALANCE_TR), q, page > 0, "해외주식 잔고 조회");
+            try {
+                rows(p.body().get("output1")).forEach(r -> out.add(new Position(str(r.get("ovrs_pdno")),
+                        str(r.get("ovrs_excg_cd")), num(r, "ovrs_cblc_qty").longValueExact(), num(r, "pchs_avg_pric"))));
+            } catch (RuntimeException e) {
+                throw new KisException("해외주식 잔고 응답을 읽을 수 없음", e);
+            }
+            if (!p.more()) {
+                return out;
+            }
+            fk = str(p.body().get("ctx_area_fk200"));
+            nk = str(p.body().get("ctx_area_nk200"));
+        }
+        throw new KisException("해외주식 잔고가 " + MAX_PAGES + "쪽을 넘음");
+    }
+
+    private static Fill fill(Map<String, Object> r) {
+        String side = str(r.get("sll_buy_dvsn_cd"));
+        return new Fill(str(r.get("ord_dt")), str(r.get("ord_tmd")), str(r.get("odno")), str(r.get("orgn_odno")),
+                "01".equals(side) ? Side.SELL : "02".equals(side) ? Side.BUY : null, str(r.get("pdno")),
+                num(r, "ft_ord_qty").longValueExact(), num(r, "ft_ord_unpr3"),
+                num(r, "ft_ccld_qty").longValueExact(), num(r, "ft_ccld_unpr3"));
+    }
+
+    /** 응답의 숫자 문자열. 빈 값은 0. */
+    private static BigDecimal num(Map<String, Object> r, String key) {
+        String s = str(r.get(key));
+        return s.isEmpty() ? BigDecimal.ZERO : new BigDecimal(s);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> rows(Object o) {
+        if (o instanceof List<?> l) {
+            return l.stream().filter(x -> x instanceof Map<?, ?>).map(x -> (Map<String, Object>) x).toList();
+        }
+        return o instanceof Map<?, ?> m && !m.isEmpty() ? List.of((Map<String, Object>) m) : List.of();
+    }
+
     /** 예약 취소 응답이 "취소됨"인지. rt_cd만 보면 모의 서버의 성공 응답을 실패로 읽는다 ({@link #CANCEL_DONE_CODES}). */
     public static boolean cancelled(Reply r) {
         return r.ok() || CANCEL_DONE_CODES.contains(r.msgCd());
@@ -200,6 +316,29 @@ public final class KisClient {
      * 주문이어도 다시 보내 중복이 생기지 않는다. 다른 오류는 그대로 돌려준다.
      */
     private Reply call(String method, String path, String trId, Map<String, String> query, Map<String, String> body) {
+        return reply(send(method, path, trId, query, body, null));
+    }
+
+    /** 조회 한 쪽. more: 응답 헤더 tr_cont가 M·F면 다음 쪽이 있다. */
+    private record Page(Map<String, Object> body, boolean more) {
+    }
+
+    /** 성공(rt_cd 0)이나 "조회할 내역 없음"만 받고, 그 밖에는 예외 (다음 틱에 다시 조회). */
+    private Page page(String path, String trId, Map<String, String> query, boolean next, String what) {
+        KisTransport.Response res = send("GET", path, trId, query, null, next ? "N" : null);
+        Map<String, Object> m = parseObject(res.body());
+        String msgCd = str(m.get("msg_cd"));
+        if (!"0".equals(str(m.get("rt_cd"))) && !NO_DATA.equals(msgCd)) {
+            throw new KisException(what + " 실패: "
+                    + (m.containsKey("rt_cd") ? msgCd + " " + str(m.get("msg1")) : "HTTP " + res.status()));
+        }
+        String trCont = res.header("tr_cont");
+        return new Page(m, "M".equals(trCont) || "F".equals(trCont));
+    }
+
+    /** @param trCont 이어 받는 조회면 "N", 아니면 null */
+    private KisTransport.Response send(String method, String path, String trId, Map<String, String> query,
+                                       Map<String, String> body, String trCont) {
         String bearer = token();
         Map<String, String> h = new LinkedHashMap<>();
         h.put("content-type", "application/json; charset=utf-8");
@@ -208,22 +347,25 @@ public final class KisClient {
         h.put("appsecret", appSecret);
         h.put("tr_id", trId);
         h.put("custtype", "P");
-        Reply r = null;
+        if (trCont != null) {
+            h.put("tr_cont", trCont);
+        }
+        KisTransport.Response res = null;
         for (int attempt = 1; attempt <= RATE_LIMIT_ATTEMPTS; attempt++) {
             pace();
             try {
-                r = reply(transport.send(method, uri(path, query), h, body == null ? null : json(body)));
+                res = transport.send(method, uri(path, query), h, body == null ? null : json(body));
             } finally {
                 lastCallAt = clock.instant();
             }
-            if (!RATE_LIMITED.equals(r.msgCd())) {
-                return r;
+            if (!RATE_LIMITED.equals(str(parseObject(res.body()).get("msg_cd")))) {
+                return res;
             }
             if (attempt < RATE_LIMIT_ATTEMPTS) {
                 sleeper.sleep(RATE_LIMIT_BACKOFF.multipliedBy(attempt));
             }
         }
-        return r;
+        return res;
     }
 
     private synchronized String token() {

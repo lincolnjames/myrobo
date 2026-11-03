@@ -31,9 +31,17 @@ public class PlanRepository {
     /** 계좌별 주문안 생성 직렬화. 트랜잭션이 끝나면 자동으로 풀린다. */
     static final String LOCK = "select pg_advisory_xact_lock(770100 + :account)";
     static final String HOLIDAYS = "select date from market_holiday where full_day_closed";
+    /**
+     * 증권사로 접수된 주문이 아직 체결 반영 전이면 하루(거래일) 더 기다린다: 유효기한 마지막 날의 장은 한국 시간
+     * 다음 날 새벽에 끝나므로, 그대로 만료시키면 체결이 기록되지 않은 채 닫힌다. 반영이 막혀도 그다음엔 만료된다.
+     */
     static final String EXPIRE_OVERDUE = """
             update order_plan set status = 'EXPIRED', updated_at = now()
-            where account_id = :account and status = 'SENT' and expires_at < :tradeDate""";
+            where account_id = :account and status = 'SENT' and expires_at < :tradeDate
+              and (expires_at < :graceDate or not exists (
+                    select 1 from broker_order o join broker_dispatch d on d.id = o.dispatch_id
+                    where d.plan_id = order_plan.id and d.mode <> 'DRY_RUN'
+                      and o.status in ('SUBMITTED', 'CANCEL_FAILED') and o.fill_status is null))""";
     static final String FIND_OPEN = """
             select id from order_plan where account_id = :account and status in ('DRAFT', 'SENT')
             order by id limit 1""";
@@ -89,9 +97,14 @@ public class PlanRepository {
         return new HashSet<>(jdbc.sql(HOLIDAYS).query((rs, n) -> rs.getObject(1, LocalDate.class)).list());
     }
 
-    /** 유효 기간이 지난 발송 주문안을 만료 처리하고 몇 건인지 돌려준다. */
-    public int expireOverdue(long account, LocalDate tradeDate) {
-        return jdbc.sql(EXPIRE_OVERDUE).param("account", account).param("tradeDate", tradeDate).update();
+    /**
+     * 유효 기간이 지난 발송 주문안을 만료 처리하고 몇 건인지 돌려준다.
+     *
+     * @param graceDate 체결 반영을 기다리는 주문안은 유효기한이 이 날짜보다 앞설 때만 만료 (tradeDate의 전 거래일)
+     */
+    public int expireOverdue(long account, LocalDate tradeDate, LocalDate graceDate) {
+        return jdbc.sql(EXPIRE_OVERDUE).param("account", account).param("tradeDate", tradeDate)
+                .param("graceDate", graceDate).update();
     }
 
     public Optional<Long> findOpen(long account) {

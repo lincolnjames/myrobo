@@ -1,7 +1,11 @@
 package com.myrobo.broker;
 
+import com.myrobo.broker.DispatchStore.FillRecord;
+import com.myrobo.broker.DispatchStore.LiveOrder;
+import com.myrobo.broker.DispatchStore.Mode;
 import com.myrobo.broker.DispatchStore.Phase;
 import com.myrobo.broker.OrderPlanner.Order;
+import com.myrobo.broker.OrderPlanner.Side;
 import com.myrobo.collector.http.Sleeper;
 import com.myrobo.ops.Notifier;
 import com.myrobo.plan.PlanViews.ItemView;
@@ -242,6 +246,84 @@ final class BrokerFixtures {
         public BigDecimal submittedUsdOn(LocalDate kstDay) {
             return submittedToday;
         }
+
+        final List<LiveOrder> live = new ArrayList<>();
+        final List<FillRecord> fills = new ArrayList<>();
+
+        @Override
+        public List<LiveOrder> liveOrders(long planId, Mode mode) {
+            return List.copyOf(live);
+        }
+
+        @Override
+        public void recordFills(List<FillRecord> f) {
+            fills.addAll(f);
+        }
+
+        /** 시도 기록을 직접 넣는다 (체결 반영 테스트용). */
+        void attempt(Phase phase, String status, LocalDate day) {
+            dispatches.add(new Row(dispatches.size() + 1, 1, Mode.PAPER, phase, status, null, day));
+        }
+    }
+
+    // ── 2026-11-03 모의 계좌에서 실제로 받은 응답 (계좌번호만 바꿈, 체결내역은 쓰는 필드 위주로 줄임) ──
+
+    /** 11-02 예약주문(267~269)이 장 시작에 주문 36617~36619로 나가 전량 체결된 주문체결내역. */
+    static final String CCNL_1102 = """
+            {"ctx_area_nk200":"","ctx_area_fk200":"","output":[
+            {"ord_dt":"20261102","ord_gno_brno":"00950","odno":"36617","orgn_odno":"0","sll_buy_dvsn_cd":"02",
+             "sll_buy_dvsn_cd_name":"매수","rvse_cncl_dvsn":"00","pdno":"VTI","ft_ord_qty":"26","ft_ord_unpr3":"375.29000000",
+             "ft_ccld_qty":"26","ft_ccld_unpr3":"373.43500000","ft_ccld_amt3":"9709.31000","nccs_qty":"0",
+             "prcs_stat_name":"","rjct_rson":"","ord_tmd":"233003","tr_mket_name":"미국아멕스","ovrs_excg_cd":"AMEX",
+             "dmst_ord_dt":"20261102","thco_ord_tmd":"233003"},
+            {"ord_dt":"20261102","ord_gno_brno":"00950","odno":"36618","orgn_odno":"0","sll_buy_dvsn_cd":"02",
+             "sll_buy_dvsn_cd_name":"매수","rvse_cncl_dvsn":"00","pdno":"SCHR","ft_ord_qty":"345","ft_ord_unpr3":"24.40000000",
+             "ft_ccld_qty":"345","ft_ccld_unpr3":"24.06000000","ft_ccld_amt3":"8300.70000","nccs_qty":"0",
+             "prcs_stat_name":"","rjct_rson":"","ord_tmd":"233003","tr_mket_name":"미국아멕스","ovrs_excg_cd":"AMEX",
+             "dmst_ord_dt":"20261102","thco_ord_tmd":"233003"},
+            {"ord_dt":"20261102","ord_gno_brno":"00950","odno":"36619","orgn_odno":"0","sll_buy_dvsn_cd":"02",
+             "sll_buy_dvsn_cd_name":"매수","rvse_cncl_dvsn":"00","pdno":"BIL","ft_ord_qty":"45","ft_ord_unpr3":"92.62000000",
+             "ft_ccld_qty":"45","ft_ccld_unpr3":"91.41000000","ft_ccld_amt3":"4113.45000","nccs_qty":"0",
+             "prcs_stat_name":"","rjct_rson":"","ord_tmd":"233004","tr_mket_name":"미국아멕스","ovrs_excg_cd":"AMEX",
+             "dmst_ord_dt":"20261102","thco_ord_tmd":"233004"}],
+            "rt_cd":"0","msg_cd":"20310000","msg1":"모의투자 조회가 완료되었습니다.                                      "}""";
+
+    /** 같은 날 해외주식 잔고 (AMEX). */
+    static final String BALANCE_AMEX = """
+            {"ctx_area_fk200":"","ctx_area_nk200":"","output1":[
+            {"cano":"50123456","acnt_prdt_cd":"01","prdt_type_cd":"100","ovrs_pdno":"BIL","ovrs_item_name":"SS SPDR BLOOMBERG 1-3M T-BILL",
+             "frcr_evlu_pfls_amt":"0.000000","evlu_pfls_rt":"0.00","pchs_avg_pric":"91.4100","ovrs_cblc_qty":"45","ord_psbl_qty":"45",
+             "frcr_pchs_amt1":"4113.45000","ovrs_stck_evlu_amt":"4113.45000000","now_pric2":"91.410000","tr_crcy_cd":"USD","ovrs_excg_cd":"AMEX"},
+            {"cano":"50123456","acnt_prdt_cd":"01","prdt_type_cd":"100","ovrs_pdno":"SCHR","ovrs_item_name":"SCHWAB INTERMEDIATE TERM US TREASURY",
+             "frcr_evlu_pfls_amt":"3.450000","evlu_pfls_rt":"0.04","pchs_avg_pric":"24.0600","ovrs_cblc_qty":"345","ord_psbl_qty":"345",
+             "frcr_pchs_amt1":"8300.70000","ovrs_stck_evlu_amt":"8304.15000000","now_pric2":"24.070000","tr_crcy_cd":"USD","ovrs_excg_cd":"AMEX"},
+            {"cano":"50123456","acnt_prdt_cd":"01","prdt_type_cd":"100","ovrs_pdno":"VTI","ovrs_item_name":"VANGUARD TOTAL STOCK MARKET",
+             "frcr_evlu_pfls_amt":"-89.310000","evlu_pfls_rt":"-0.92","pchs_avg_pric":"373.4350","ovrs_cblc_qty":"26","ord_psbl_qty":"26",
+             "frcr_pchs_amt1":"9709.31000","ovrs_stck_evlu_amt":"9620.00000000","now_pric2":"370.000000","tr_crcy_cd":"USD","ovrs_excg_cd":"AMEX"}],
+            "output2":{"frcr_pchs_amt1":"29667559.86000","ovrs_rlzt_pfls_amt":"0.00000","tot_evlu_pfls_amt":"-115138.26000000"},
+            "rt_cd":"0","msg_cd":"20310000","msg1":"모의투자 조회가 완료되었습니다.                                      "}""";
+
+    /** 내역이 없을 때 (모의 잔고 NYSE 조회에서 실제로 받은 코드). */
+    static final String NO_ROWS = """
+            {"ctx_area_fk200":"","ctx_area_nk200":"","output1":[],"output":[],
+            "rt_cd":"0","msg_cd":"70070000","msg1":"모의투자 조회할 내역(자료)이 없습니다.                                      "}""";
+
+    /** 시험용 DB의 주문안 #1 (11-02, 매수 4줄). GLDM은 그날 EGW00201로 접수되지 않았다. */
+    static PlanView plan1() {
+        return plan(1, "SENT", null, List.of(
+                new ItemView(1, "BUY", "VTI", 26, d("371.570000"), d("9660.82")),
+                new ItemView(2, "BUY", "SCHR", 345, d("24.160000"), d("8335.20")),
+                new ItemView(3, "BUY", "BIL", 45, d("91.700000"), d("4126.50")),
+                new ItemView(4, "BUY", "GLDM", 36, d("76.830000"), d("2765.88"))));
+    }
+
+    /** 주문안 #1에서 접수된 세 줄 (지정가 = 예상가 + 1% 올림). */
+    static List<LiveOrder> plan1Live() {
+        LocalDate day = LocalDate.of(2026, 11, 2);
+        return List.of(
+                new LiveOrder(1, 1, Side.BUY, "VTI", "AMEX", 26, d("375.2900"), day),
+                new LiveOrder(2, 2, Side.BUY, "SCHR", "AMEX", 345, d("24.4000"), day),
+                new LiveOrder(3, 3, Side.BUY, "BIL", "AMEX", 45, d("92.6200"), day));
     }
 
     private BrokerFixtures() {
