@@ -1,5 +1,6 @@
 package com.myrobo.plan;
 
+import com.myrobo.guard.SafetyGuard;
 import com.myrobo.holdings.HoldingsService;
 
 import java.math.BigDecimal;
@@ -14,6 +15,12 @@ public final class PlanViews {
     }
 
     public record CheckView(String rule, String label, boolean passed, String detail) {
+
+        /** 이번 계산의 안전 검증 결과를 응답 형태로. 만들기와 미리보기가 같이 쓴다. */
+        public static List<CheckView> of(SafetyGuard.Report report) {
+            return report.checks().stream()
+                    .map(x -> new CheckView(x.rule().name(), x.label(), x.passed(), x.detail())).toList();
+        }
     }
 
     public record ItemView(long id, String side, String symbol, long qty, BigDecimal estPrice, BigDecimal estAmount) {
@@ -68,6 +75,10 @@ public final class PlanViews {
     /**
      * 종목별 비중(퍼센트). 계산할 수 없으면 null.
      *
+     * <p>현재·목표 비중과 breachBefore는 잔고 화면과 같은 {@code Valuation}에서, afterPct·breachAfter는 엔진 결과에서
+     * 온다. 둘은 같은 규칙(종목 집합 = 목표 종목 + 보유 중인 화이트리스트 종목, 버퍼·허용 범위 계산)을 쓰므로
+     * 엔진이 돌았으면 모든 종목에 afterPct가 있고, 매매가 없을 때 afterPct = currentPct다 (테스트로 확인).
+     *
      * @param afterPct    이 주문안대로 체결되면 될 비중. 엔진이 계산하지 않았으면(분할 대기·오류) null
      * @param breachAfter 체결 뒤에도 허용 범위 밖인가. afterPct가 null이면 null
      */
@@ -78,10 +89,12 @@ public final class PlanViews {
     /**
      * 주문안 미리보기 (저장하지 않음). 지금 주문안을 만들면 나올 결과와 그 계산.
      *
-     * @param predicted  지금 {@code POST /api/plans}를 누르면 나올 결과
-     * @param kind       CORE / INITIAL_BUILD(나눠 내는 큰 주문안)
-     * @param openPlanId 미완료 주문안. 없으면 null
-     * @param checks     미완료 주문안이 없다고 보고 돌린 안전 검증 (실제 만들기와 같은 방식)
+     * @param predicted      지금 {@code POST /api/plans}를 누르면 나올 결과
+     * @param kind           CORE / INITIAL_BUILD(나눠 내는 큰 주문안)
+     * @param excluded       계산에서 뺀 시스템 밖 종목 (엔진 기준. 엔진이 못 돌았으면 잔고 평가 기준)
+     * @param checks         만들기와 같은 입력으로 돌린 안전 검증. 미완료 주문안이 있으면 NO_OPEN_PLAN이 실패로 나온다
+     * @param openPlanId     만들기 때 남아 있을 미완료 주문안. 없으면 null
+     * @param expiringPlanId 기한이 지나 만들기 때 먼저 만료될 주문안. 없으면 null
      */
     public record PreviewResult(
             Outcome predicted,
@@ -104,7 +117,8 @@ public final class PlanViews {
             List<String> excluded,
             boolean guardPassed,
             List<CheckView> checks,
-            Long openPlanId) {
+            Long openPlanId,
+            Long expiringPlanId) {
     }
 
     /**

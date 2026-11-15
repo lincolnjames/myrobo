@@ -69,7 +69,8 @@
 
 - `GET /api/plans/preview` (`PlanService.preview()`, 응답 조립은 순수 `PlanPreview`): 지금 주문안을 만들면 나올 매매(종목·방향·주수·예상 금액)와 종목별 현재·목표·매매 후 비중, 안전 검증 결과, 예상 결과(`predicted`: SENT/REJECTED/NO_ACTION/OPEN_EXISTS/ALREADY_TODAY)
 - 만들기와 같은 일정·엔진·검증 코드(`build`, `guardInput`)를 쓴다. 새 계산 규칙이 아니므로 골든 케이스와 무관
-- **DB에 쓰지 않는다** (만료 처리·잠금·저장 없음, readOnly 트랜잭션). 그래서 기한 지난 미완료 주문안이 있으면 OPEN_EXISTS로 보이고, 실제 만들기에서는 먼저 만료된다
+- **DB에 쓰지 않는다** (만료 처리·잠금·저장 없음, readOnly 트랜잭션). 대신 만들기가 할 만료를 따라 한다: `findOverdue`(`EXPIRE_OVERDUE`와 같은 조건 `OVERDUE_WHERE`)로 만료될 주문안을 찾아 미완료로 치지 않고(`expiringPlanId`), 지난 주문안이 닫힌 시각을 지금으로 둬서 검증한다 → 그 뒤 잔고를 다시 넣지 않았으면 만들기처럼 REJECTED
+- 결과 판정 순서는 `PlanService.decideOutcome` 하나를 만들기·미리보기가 같이 쓴다. 미완료 주문안이 있으면 검증 목록의 NO_OPEN_PLAN도 실패로 나온다
 - 미리보기는 주문 근거가 아니다. 주문은 저장·검증된 주문안으로만
 
 ## 체결 입력 (구현됨, 실제 Postgres 확인 전)

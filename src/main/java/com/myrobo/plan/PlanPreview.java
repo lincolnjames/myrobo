@@ -1,6 +1,5 @@
 package com.myrobo.plan;
 
-import com.myrobo.guard.SafetyGuard;
 import com.myrobo.guard.SafetyGuard.Report;
 import com.myrobo.plan.PlanDecider.Decision;
 import com.myrobo.plan.PlanViews.CheckView;
@@ -21,7 +20,7 @@ import java.util.SortedMap;
 /**
  * 주문안 미리보기 응답 조립. 순수 함수 (DB·시계 없음).
  *
- * <p>결과 판정 순서는 {@link PlanService#create()}와 같다: 미완료 주문안 → 주문 없음 → 오늘 이미 있음 → 검증 통과/실패.
+ * <p>예상 결과는 만들기와 같은 {@link PlanService#decideOutcome}으로 정한다.
  * 미완료 주문안이 있거나 오늘 이미 만들었어도 계산 결과는 참고용으로 그대로 보여 준다.
  */
 public final class PlanPreview {
@@ -33,33 +32,27 @@ public final class PlanPreview {
     }
 
     /**
-     * @param view        지금 잔고의 비중 평가 (잔고 화면과 같은 계산)
-     * @param openPlanId  미완료 주문안. 없으면 null
-     * @param todayPlanId 같은 거래일·규칙 버전으로 이미 만든 주문안. 없으면 null
+     * @param report         만들기와 같은 입력으로 돌린 안전 검증 (미완료 주문안·만료될 주문안 반영)
+     * @param view           지금 잔고의 비중 평가 (잔고 화면과 같은 계산)
+     * @param openPlanId     만들기 때 남아 있을 미완료 주문안. 없으면 null
+     * @param expiringPlanId 기한이 지나 만들기 때 먼저 만료될 주문안. 없으면 null
+     * @param todayPlanId    같은 거래일·규칙 버전으로 이미 만든 주문안. 없으면 null
      */
     public static PreviewResult of(Decision d, Report report, TradingSchedule sched, Valuation.View view,
-                                   Long openPlanId, Long todayPlanId, LocalDate goalStart) {
+                                   Long openPlanId, Long expiringPlanId, Long todayPlanId, LocalDate goalStart) {
         Plan plan = d.plan();
-        Outcome predicted;
-        String message;
-        if (openPlanId != null) {
-            predicted = Outcome.OPEN_EXISTS;
-            message = "미완료 주문안 #" + openPlanId + "이 있어 지금 만들면 새로 만들어지지 않아요"
-                    + " (기한이 지났다면 만들 때 먼저 만료 처리돼요). 아래 계산은 참고용이에요.";
-        } else if (plan.action() == Action.NO_ACTION) {
-            predicted = Outcome.NO_ACTION;
-            message = PlanService.noActionMessage(plan, report, goalStart);
-        } else if (report.passed() && todayPlanId != null) {
-            predicted = Outcome.ALREADY_TODAY;
-            message = sched.tradeDate() + " 주문안은 이미 있어요 (#" + todayPlanId
+        Outcome predicted = PlanService.decideOutcome(openPlanId, plan, report, todayPlanId);
+        String message = switch (predicted) {
+            case OPEN_EXISTS -> "미완료 주문안 #" + openPlanId + "이 있어 지금 만들면 새로 만들어지지 않아요."
+                    + " 아래 계산은 참고용이에요.";
+            case NO_ACTION -> PlanService.noActionMessage(plan, report, goalStart);
+            case ALREADY_TODAY -> sched.tradeDate() + " 주문안은 이미 있어요 (#" + todayPlanId
                     + "). 하루에 한 건만 만들어서, 아래 계산은 참고용이에요.";
-        } else if (report.passed()) {
-            predicted = Outcome.SENT;
-            message = "지금 주문안을 만들면 이대로 발송돼요. 주문은 주문안을 만든 뒤 그 주문안대로 하세요.";
-        } else {
-            predicted = Outcome.REJECTED;
-            message = "지금 만들면 안전 검증에 걸려 폐기돼요: " + String.join(", ",
-                    report.failures().stream().map(SafetyGuard.Check::label).toList()) + ".";
+            case SENT -> "지금 주문안을 만들면 이대로 발송돼요. 주문은 주문안을 만든 뒤 그 주문안대로 하세요.";
+            case REJECTED -> "지금 만들면 안전 검증에 걸려 폐기돼요: " + PlanService.failedLabels(report) + ".";
+        };
+        if (expiringPlanId != null) {
+            message = "주문안 #" + expiringPlanId + "은 기한이 지나 만들 때 먼저 만료돼요. " + message;
         }
         if (plan.action() != Action.NO_ACTION) {
             message += DO_NOT_ORDER;
@@ -71,6 +64,7 @@ public final class PlanPreview {
                         l.estAmountUsd()))
                 .toList();
 
+        // 현재 비중은 Valuation, 매매 뒤 비중은 엔진. 같은 규칙이라 종목 집합이 같다 (WeightView 참고).
         SortedMap<String, BigDecimal> after = plan.weightsAfterPct();
         List<WeightView> weights = view.rows().stream()
                 .map(r -> {
@@ -80,9 +74,10 @@ public final class PlanPreview {
                 })
                 .toList();
 
-        List<CheckView> checks = report.checks().stream()
-                .map(x -> new CheckView(x.rule().name(), x.label(), x.passed(), x.detail())).toList();
-        List<String> excluded = view.excluded().stream().map(Valuation.Position::symbol).toList();
+        // 엔진이 실제로 뺀 종목. 엔진이 못 돌았으면(오류) 엔진 목록이 비어 있으니 잔고 평가 기준으로 보여 준다.
+        List<String> excluded = plan.action() == Action.ERROR
+                ? view.excluded().stream().map(Valuation.Position::symbol).toList()
+                : plan.excludedHoldings();
 
         return new PreviewResult(predicted, PREFIX + message, sched, d.kind().name(),
                 plan.action().name(), plan.reason(), d.note() != null ? d.note() : plan.detail(),
@@ -90,6 +85,6 @@ public final class PlanPreview {
                 plan.fx() == null ? null : plan.fx().usd(), plan.fx() == null ? null : plan.fx().krwEst(),
                 lines, weights, view.cashWeightPct(), view.cashTargetPct(),
                 plan.cashAfterUsd(), plan.cashAfterKrw(), excluded,
-                report.passed(), checks, openPlanId);
+                report.passed(), CheckView.of(report), openPlanId, expiringPlanId);
     }
 }
