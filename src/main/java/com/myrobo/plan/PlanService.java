@@ -14,6 +14,7 @@ import com.myrobo.plan.PlanViews.CreateResult;
 import com.myrobo.plan.PlanViews.Outcome;
 import com.myrobo.plan.PlanViews.Overview;
 import com.myrobo.plan.PlanViews.PlanView;
+import com.myrobo.plan.PlanViews.PreviewResult;
 import com.myrobo.portfolio.Plan;
 import com.myrobo.portfolio.PlanInput;
 import com.myrobo.portfolio.PlanTypes.Action;
@@ -94,11 +95,7 @@ public class PlanService {
         }
 
         Built b = build(c, st, sched);
-        Report report = SafetyGuard.check(new GuardInput(
-                sched.tradeDate(), LocalDate.ofInstant(now, SEOUL), c.goal().startDate(),
-                st.asOf(), st.enteredAt(), repo.lastClosedAt(account).orElse(null), null,
-                b.priceRequired(), b.priceLag(), st.fx() == null ? null : st.fx().date(),
-                b.decision().input(), b.decision().plan(), c.equitySymbols(), limits(c)));
+        Report report = SafetyGuard.check(guardInput(c, st, sched, b, now));
         List<CheckView> checks = report.checks().stream()
                 .map(x -> new CheckView(x.rule().name(), x.label(), x.passed(), x.detail())).toList();
         Plan plan = b.decision().plan();
@@ -108,7 +105,7 @@ public class PlanService {
                     checks);
         }
 
-        String base = sched.tradeDate() + "|CORE|" + c.version();
+        String base = baseKey(c, sched);
         if (report.passed() && repo.findByKey(base).isPresent()) {
             PlanView p = repo.load(repo.findByKey(base).get()).orElseThrow();
             return new CreateResult(Outcome.ALREADY_TODAY, sched.tradeDate() + " 주문안은 이미 있어요 (#" + p.id()
@@ -137,7 +134,38 @@ public class PlanService {
                 + String.join(", ", failed) + ". 이 계산대로 주문하지 마세요.", repo.load(id).orElseThrow(), checks);
     }
 
+    /**
+     * 지금 주문안을 만들면 나올 내용을 저장 없이 계산한다. 만들기와 같은 일정·엔진·안전 검증을 쓰고,
+     * DB에는 쓰지 않는다 (만료 처리·잠금·저장 없음).
+     */
+    @Transactional(readOnly = true)
+    public PreviewResult preview() {
+        RoboConfig c = loaded.config();
+        State st = holdings.state();
+        long account = st.account();
+        TradingSchedule sched = schedule();
+        Built b = build(c, st, sched);
+        Report report = SafetyGuard.check(guardInput(c, st, sched, b, clock.instant()));
+        return PlanPreview.of(b.decision(), report, sched, holdings.valuation(st),
+                repo.findOpen(account).orElse(null), repo.findByKey(baseKey(c, sched)).orElse(null),
+                c.goal().startDate());
+    }
+
     // ── 내부 ──
+
+    /** 하루 한 건 제약의 키 (검증 통과한 주문안). */
+    private static String baseKey(RoboConfig c, TradingSchedule sched) {
+        return sched.tradeDate() + "|CORE|" + c.version();
+    }
+
+    /** 만들기와 미리보기가 같은 사실로 검증하도록 한곳에서 조립한다. 미완료 주문안은 따로 판단하므로 null. */
+    private GuardInput guardInput(RoboConfig c, State st, TradingSchedule sched, Built b, Instant now) {
+        return new GuardInput(
+                sched.tradeDate(), LocalDate.ofInstant(now, SEOUL), c.goal().startDate(),
+                st.asOf(), st.enteredAt(), repo.lastClosedAt(st.account()).orElse(null), null,
+                b.priceRequired(), b.priceLag(), st.fx() == null ? null : st.fx().date(),
+                b.decision().input(), b.decision().plan(), c.equitySymbols(), limits(c));
+    }
 
     private TradingSchedule schedule() {
         MarketCalendar cal = new MarketCalendar(repo.fullDayClosures());

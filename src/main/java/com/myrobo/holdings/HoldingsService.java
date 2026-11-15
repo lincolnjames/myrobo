@@ -72,15 +72,21 @@ public class HoldingsService {
         RoboConfig c = loaded.config();
         State st = state();
         TreeSet<String> symbols = new TreeSet<>(c.whitelist());
-        Valuation.View view = Valuation.of(st.positions(), st.cash().usd(), st.cash().krw(),
-                st.prices(), st.fx() == null ? null : st.fx().rate(),
-                c.targetsFor(c.goal().horizon()), true, c.whitelist(),
-                c.rebalance().toPlannerConfig());
+        Valuation.View view = valuation(st);
 
         LocalDate today = LocalDate.now(SEOUL);
         return new PortfolioResponse(c.coreBroker(), c.goal().horizon(), List.copyOf(symbols),
                 st.asOf(), st.asOf() == null ? null : ChronoUnit.DAYS.between(st.asOf(), today),
                 st.positions(), st.cash(), st.fx(), view);
+    }
+
+    /** 이 상태의 비중 평가. 잔고 화면과 주문안 미리보기가 같은 계산을 쓴다. */
+    public Valuation.View valuation(State st) {
+        RoboConfig c = loaded.config();
+        return Valuation.of(st.positions(), st.cash().usd(), st.cash().krw(),
+                st.prices(), st.fx() == null ? null : st.fx().rate(),
+                c.targetsFor(c.goal().horizon()), true, c.whitelist(),
+                c.rebalance().toPlannerConfig());
     }
 
     /** 검증을 통과하면 그날 스냅샷을 통째로 바꾸고 최신 상태를 돌려준다. */

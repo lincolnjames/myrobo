@@ -61,6 +61,52 @@ public final class PlanViews {
     public record Overview(TradingSchedule schedule, PlanView open, List<PlanView> recent) {
     }
 
+    /** 미리보기 주문 줄. 금액은 예상 체결가(직전 종가) 기준 달러. */
+    public record PreviewLine(String side, String symbol, long qty, BigDecimal estPrice, BigDecimal estAmountUsd) {
+    }
+
+    /**
+     * 종목별 비중(퍼센트). 계산할 수 없으면 null.
+     *
+     * @param afterPct    이 주문안대로 체결되면 될 비중. 엔진이 계산하지 않았으면(분할 대기·오류) null
+     * @param breachAfter 체결 뒤에도 허용 범위 밖인가. afterPct가 null이면 null
+     */
+    public record WeightView(String symbol, long qty, BigDecimal currentPct, BigDecimal targetPct,
+                             BigDecimal bandPct, BigDecimal afterPct, boolean breachBefore, Boolean breachAfter) {
+    }
+
+    /**
+     * 주문안 미리보기 (저장하지 않음). 지금 주문안을 만들면 나올 결과와 그 계산.
+     *
+     * @param predicted  지금 {@code POST /api/plans}를 누르면 나올 결과
+     * @param kind       CORE / INITIAL_BUILD(나눠 내는 큰 주문안)
+     * @param openPlanId 미완료 주문안. 없으면 null
+     * @param checks     미완료 주문안이 없다고 보고 돌린 안전 검증 (실제 만들기와 같은 방식)
+     */
+    public record PreviewResult(
+            Outcome predicted,
+            String message,
+            TradingSchedule schedule,
+            String kind,
+            String action,
+            String reason,
+            String note,
+            BigDecimal totalUsd,
+            BigDecimal sizePct,
+            Long fxUsd,
+            Long fxKrwEst,
+            List<PreviewLine> lines,
+            List<WeightView> weights,
+            BigDecimal cashCurrentPct,
+            BigDecimal cashTargetPct,
+            BigDecimal cashAfterUsd,
+            BigDecimal cashAfterKrw,
+            List<String> excluded,
+            boolean guardPassed,
+            List<CheckView> checks,
+            Long openPlanId) {
+    }
+
     /**
      * 환전 예상 대비 실제 환율. 주문안에 환전이 없었으면 expectedRate, diffPct는 null.
      *

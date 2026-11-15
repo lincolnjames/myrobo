@@ -6,6 +6,7 @@ import com.myrobo.plan.PlanService;
 import com.myrobo.plan.PlanViews.CreateResult;
 import com.myrobo.plan.PlanViews.ExecutionResult;
 import com.myrobo.plan.PlanViews.Overview;
+import com.myrobo.plan.PlanViews.PreviewResult;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,6 +32,12 @@ public class PlanController {
     @GetMapping
     public Overview overview() {
         return service.overview();
+    }
+
+    /** 지금 주문안을 만들면 나올 매매·비중 미리보기. 저장하지 않으므로 GET (X-Robo-Request 불필요). */
+    @GetMapping("/preview")
+    public PreviewResult preview() {
+        return service.preview();
     }
 
     /** 체결 입력. 저장되면 200, 입력이 잘못됐으면 400, 받을 수 없는 상태면 409. 본문은 항상 ExecutionResult. */

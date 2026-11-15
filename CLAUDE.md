@@ -65,6 +65,13 @@
 - 목표 시작일 `goal.startDate` = **2026-11-02**. 그 전에는 주문안이 발송되지 않는다.
   현재 잔고(BIL 위주)는 필요한 매매가 163%라 11-02(월, 주·월 첫 거래일)부터 매주 25% 이내로 나눠 진행된다
 
+## 주문안 미리보기 (이슈 #7, 실제 DB 확인 전)
+
+- `GET /api/plans/preview` (`PlanService.preview()`, 응답 조립은 순수 `PlanPreview`): 지금 주문안을 만들면 나올 매매(종목·방향·주수·예상 금액)와 종목별 현재·목표·매매 후 비중, 안전 검증 결과, 예상 결과(`predicted`: SENT/REJECTED/NO_ACTION/OPEN_EXISTS/ALREADY_TODAY)
+- 만들기와 같은 일정·엔진·검증 코드(`build`, `guardInput`)를 쓴다. 새 계산 규칙이 아니므로 골든 케이스와 무관
+- **DB에 쓰지 않는다** (만료 처리·잠금·저장 없음, readOnly 트랜잭션). 그래서 기한 지난 미완료 주문안이 있으면 OPEN_EXISTS로 보이고, 실제 만들기에서는 먼저 만료된다
+- 미리보기는 주문 근거가 아니다. 주문은 저장·검증된 주문안으로만
+
 ## 체결 입력 (구현됨, 실제 Postgres 확인 전)
 
 `POST /api/plans/{id}/executions` (`ExecutionService`, 순수 계산은 `ExecutionInput`). 아래 명세대로 구현했고 단위 테스트는 통과.
