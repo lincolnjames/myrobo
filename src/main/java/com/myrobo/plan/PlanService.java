@@ -14,6 +14,7 @@ import com.myrobo.plan.PlanViews.CreateResult;
 import com.myrobo.plan.PlanViews.Outcome;
 import com.myrobo.plan.PlanViews.Overview;
 import com.myrobo.plan.PlanViews.PlanView;
+import com.myrobo.plan.PlanViews.PreviewResult;
 import com.myrobo.portfolio.Plan;
 import com.myrobo.portfolio.PlanInput;
 import com.myrobo.portfolio.PlanTypes.Action;
@@ -67,7 +68,7 @@ public class PlanService {
     public Overview overview() {
         long account = holdings.state().account();
         repo.lock(account);
-        TradingSchedule sched = schedule();
+        TradingSchedule sched = schedule(calendar(), clock.instant());
         repo.expireOverdue(account, sched.tradeDate(), sched.lastSession());
         PlanView open = repo.findOpen(account).flatMap(repo::load).orElse(null);
         return new Overview(sched, open, repo.recent(account, RECENT));
@@ -80,39 +81,41 @@ public class PlanService {
         long account = st.account();
         repo.lock(account);
         Instant now = clock.instant();
-        TradingSchedule sched = schedule();
+        MarketCalendar cal = calendar();
+        TradingSchedule sched = schedule(cal, now);
 
         int expired = repo.expireOverdue(account, sched.tradeDate(), sched.lastSession());
         if (expired > 0) {
             log.info("유효 기간이 지난 주문안 {}건 만료 처리", expired);
         }
         Optional<Long> open = repo.findOpen(account);
-        if (open.isPresent()) {
+        if (open.isPresent()) { // decideOutcome의 첫 규칙: 계산할 것도 없이 OPEN_EXISTS
             PlanView p = repo.load(open.get()).orElseThrow();
             return new CreateResult(Outcome.OPEN_EXISTS, "미완료 주문안 #" + p.id() + "이 있어 새로 만들지 않았어요. "
                     + p.expiresAt() + "(미국 거래일)까지 유효하고, 그 뒤 만료돼요.", p, p.checks());
         }
 
-        Built b = build(c, st, sched);
-        Report report = SafetyGuard.check(new GuardInput(
-                sched.tradeDate(), LocalDate.ofInstant(now, SEOUL), c.goal().startDate(),
-                st.asOf(), st.enteredAt(), repo.lastClosedAt(account).orElse(null), null,
-                b.priceRequired(), b.priceLag(), st.fx() == null ? null : st.fx().date(),
-                b.decision().input(), b.decision().plan(), c.equitySymbols(), limits(c)));
-        List<CheckView> checks = report.checks().stream()
-                .map(x -> new CheckView(x.rule().name(), x.label(), x.passed(), x.detail())).toList();
+        Built b = build(c, st, sched, cal);
+        Report report = SafetyGuard.check(guardInput(c, st, sched, b, now,
+                repo.lastClosedAt(account).orElse(null), null));
+        List<CheckView> checks = CheckView.of(report);
         Plan plan = b.decision().plan();
+        String base = baseKey(c, sched);
+        Long todayId = repo.findByKey(base).orElse(null);
 
-        if (plan.action() == Action.NO_ACTION) {
-            return new CreateResult(Outcome.NO_ACTION, noActionMessage(plan, report, c.goal().startDate()), null,
-                    checks);
-        }
-
-        String base = sched.tradeDate() + "|CORE|" + c.version();
-        if (report.passed() && repo.findByKey(base).isPresent()) {
-            PlanView p = repo.load(repo.findByKey(base).get()).orElseThrow();
-            return new CreateResult(Outcome.ALREADY_TODAY, sched.tradeDate() + " 주문안은 이미 있어요 (#" + p.id()
-                    + ", " + p.status() + "). 하루에 한 건만 만들어요.", p, p.checks());
+        switch (decideOutcome(null, plan, report, todayId)) {
+            case NO_ACTION -> {
+                return new CreateResult(Outcome.NO_ACTION, noActionMessage(plan, report, c.goal().startDate()),
+                        null, checks);
+            }
+            case ALREADY_TODAY -> {
+                PlanView p = repo.load(todayId).orElseThrow();
+                return new CreateResult(Outcome.ALREADY_TODAY, sched.tradeDate() + " 주문안은 이미 있어요 (#"
+                        + p.id() + ", " + p.status() + "). 하루에 한 건만 만들어요.", p, p.checks());
+            }
+            default -> {
+                // SENT 또는 REJECTED: 저장한다
+            }
         }
         String key = report.passed() ? base : base + "|REJECTED|" + now.toEpochMilli();
         Map<String, BigDecimal> prices = b.decision().input() == null ? Map.of() : b.decision().input().prices();
@@ -131,25 +134,99 @@ public class PlanService {
                     + "부터 " + sched.expiresAt() + "까지(미국 거래일) 이대로 주문하세요.", p, checks);
         }
         repo.transition(id, "DRAFT", "REJECTED");
-        List<String> failed = report.failures().stream().map(SafetyGuard.Check::label).toList();
-        log.warn("주문안 #{} 폐기: {}", id, failed);
+        log.warn("주문안 #{} 폐기: {}", id, failedLabels(report));
         return new CreateResult(Outcome.REJECTED, "안전 검증에 걸려 주문안 #" + id + "을 폐기했어요: "
-                + String.join(", ", failed) + ". 이 계산대로 주문하지 마세요.", repo.load(id).orElseThrow(), checks);
+                + failedLabels(report) + ". 이 계산대로 주문하지 마세요.", repo.load(id).orElseThrow(), checks);
+    }
+
+    /**
+     * 지금 주문안을 만들면 나올 내용을 저장 없이 계산한다. 만들기와 같은 일정·엔진·안전 검증을 쓰고,
+     * DB에는 쓰지 않는다 (만료 처리·잠금·저장 없음).
+     *
+     * <p>만들기는 먼저 기한 지난 주문안을 만료시키고(닫힌 시각 = 지금), 그다음 미완료 주문안을 본다.
+     * 미리보기는 만료시키지 않고 그 결과를 따라 한다: 만료될 주문안은 미완료로 치지 않고, 지난 주문안이 닫힌 시각을
+     * 지금으로 둔다. 그래서 그 뒤에 잔고를 다시 입력하지 않았으면 만들기와 똑같이 REJECTED로 나온다.
+     */
+    @Transactional(readOnly = true)
+    public PreviewResult preview() {
+        RoboConfig c = loaded.config();
+        State st = holdings.state();
+        long account = st.account();
+        Instant now = clock.instant();
+        MarketCalendar cal = calendar();
+        TradingSchedule sched = schedule(cal, now);
+
+        List<Long> overdue = repo.findOverdue(account, sched.tradeDate(), sched.lastSession());
+        Long open = repo.findOpen(account).filter(id -> !overdue.contains(id)).orElse(null);
+        Instant lastClosed = overdue.isEmpty() ? repo.lastClosedAt(account).orElse(null) : now;
+
+        Built b = build(c, st, sched, cal);
+        Report report = SafetyGuard.check(guardInput(c, st, sched, b, now, lastClosed, open));
+        return PlanPreview.of(b.decision(), report, sched, holdings.valuation(st), open,
+                overdue.isEmpty() ? null : overdue.get(0), repo.findByKey(baseKey(c, sched)).orElse(null),
+                c.goal().startDate());
+    }
+
+    /**
+     * 만들기 결과 판정. 만들기와 미리보기가 같이 쓴다 (만들기는 미완료 주문안이 있으면 계산 전에 바로 돌려준다).
+     * 순서: 미완료 주문안 → 주문 없음 → 오늘 이미 있음(검증 통과한 것만 하루 한 건) → 검증 통과/실패.
+     *
+     * @param openPlanId  미완료 주문안. 없으면 null
+     * @param todayPlanId 같은 거래일·규칙 버전으로 이미 만든 주문안. 없으면 null
+     */
+    static Outcome decideOutcome(Long openPlanId, Plan plan, Report report, Long todayPlanId) {
+        if (openPlanId != null) {
+            return Outcome.OPEN_EXISTS;
+        }
+        if (plan.action() == Action.NO_ACTION) {
+            return Outcome.NO_ACTION;
+        }
+        if (report.passed() && todayPlanId != null) {
+            return Outcome.ALREADY_TODAY;
+        }
+        return report.passed() ? Outcome.SENT : Outcome.REJECTED;
+    }
+
+    /** 실패한 안전 검증 이름을 쉼표로 이은 것. */
+    static String failedLabels(Report report) {
+        return String.join(", ", report.failures().stream().map(SafetyGuard.Check::label).toList());
     }
 
     // ── 내부 ──
 
-    private TradingSchedule schedule() {
-        MarketCalendar cal = new MarketCalendar(repo.fullDayClosures());
-        return TradingSchedule.of(cal, LocalDate.ofInstant(clock.instant(), SEOUL),
-                loaded.config().safety().expireTradingDays());
+    /** 하루 한 건 제약의 키 (검증 통과한 주문안). */
+    private static String baseKey(RoboConfig c, TradingSchedule sched) {
+        return sched.tradeDate() + "|CORE|" + c.version();
+    }
+
+    /**
+     * 만들기와 미리보기가 같은 사실로 검증하도록 한곳에서 조립한다.
+     *
+     * @param lastClosedAt 마지막으로 닫힌 주문안 시각 (미리보기는 만료될 주문안이 있으면 지금)
+     * @param openPlanId   미완료 주문안. 만들기는 이때 검증까지 오지 않으므로 항상 null
+     */
+    private GuardInput guardInput(RoboConfig c, State st, TradingSchedule sched, Built b, Instant now,
+                                  Instant lastClosedAt, Long openPlanId) {
+        return new GuardInput(
+                sched.tradeDate(), LocalDate.ofInstant(now, SEOUL), c.goal().startDate(),
+                st.asOf(), st.enteredAt(), lastClosedAt, openPlanId,
+                b.priceRequired(), b.priceLag(), st.fx() == null ? null : st.fx().date(),
+                b.decision().input(), b.decision().plan(), c.equitySymbols(), limits(c));
+    }
+
+    private MarketCalendar calendar() {
+        return new MarketCalendar(repo.fullDayClosures());
+    }
+
+    /** 일정과 검증의 "오늘"이 어긋나지 않도록 호출한 쪽이 한 번 읽은 시각을 받는다. */
+    private TradingSchedule schedule(MarketCalendar cal, Instant now) {
+        return TradingSchedule.of(cal, LocalDate.ofInstant(now, SEOUL), loaded.config().safety().expireTradingDays());
     }
 
     private record Built(Decision decision, Set<String> priceRequired, Map<String, Integer> priceLag) {
     }
 
-    private Built build(RoboConfig c, State st, TradingSchedule sched) {
-        MarketCalendar cal = new MarketCalendar(repo.fullDayClosures());
+    private Built build(RoboConfig c, State st, TradingSchedule sched, MarketCalendar cal) {
         Map<String, BigDecimal> targets = c.targetsFor(c.goal().horizon());
         Set<String> whitelist = c.whitelist();
 

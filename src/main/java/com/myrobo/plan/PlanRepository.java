@@ -35,13 +35,16 @@ public class PlanRepository {
      * 증권사로 접수된 주문이 아직 체결 반영 전이면 하루(거래일) 더 기다린다: 유효기한 마지막 날의 장은 한국 시간
      * 다음 날 새벽에 끝나므로, 그대로 만료시키면 체결이 기록되지 않은 채 닫힌다. 반영이 막혀도 그다음엔 만료된다.
      */
-    static final String EXPIRE_OVERDUE = """
-            update order_plan set status = 'EXPIRED', updated_at = now()
-            where account_id = :account and status = 'SENT' and expires_at < :tradeDate
+    static final String OVERDUE_WHERE = """
+            account_id = :account and status = 'SENT' and expires_at < :tradeDate
               and (expires_at < :graceDate or not exists (
                     select 1 from broker_order o join broker_dispatch d on d.id = o.dispatch_id
                     where d.plan_id = order_plan.id and d.mode <> 'DRY_RUN'
                       and o.status in ('SUBMITTED', 'CANCEL_FAILED') and o.fill_status is null))""";
+    static final String EXPIRE_OVERDUE =
+            "update order_plan set status = 'EXPIRED', updated_at = now() where " + OVERDUE_WHERE;
+    /** 미리보기용: {@link #EXPIRE_OVERDUE}가 만료시킬 주문안 (조건이 같은 문자열). */
+    static final String FIND_OVERDUE = "select id from order_plan where " + OVERDUE_WHERE + " order by id";
     static final String FIND_OPEN = """
             select id from order_plan where account_id = :account and status in ('DRAFT', 'SENT')
             order by id limit 1""";
@@ -105,6 +108,12 @@ public class PlanRepository {
     public int expireOverdue(long account, LocalDate tradeDate, LocalDate graceDate) {
         return jdbc.sql(EXPIRE_OVERDUE).param("account", account).param("tradeDate", tradeDate)
                 .param("graceDate", graceDate).update();
+    }
+
+    /** {@link #expireOverdue}가 지금 만료시킬 주문안. 읽기만 한다. */
+    public List<Long> findOverdue(long account, LocalDate tradeDate, LocalDate graceDate) {
+        return jdbc.sql(FIND_OVERDUE).param("account", account).param("tradeDate", tradeDate)
+                .param("graceDate", graceDate).query(Long.class).list();
     }
 
     public Optional<Long> findOpen(long account) {
